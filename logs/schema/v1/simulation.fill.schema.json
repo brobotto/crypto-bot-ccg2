@@ -7,7 +7,7 @@
   "properties": {
     "schema_version": { "type": "string", "const": "1.0" },
     "event_type": { "type": "string", "const": "simulation.fill" },
-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
     "timestamp": { "type": "string", "format": "date-time" },
     "sequence": { "type": "integer", "minimum": 1 },
     "payload": {
@@ -28,4 +28,3 @@
   },
   "additionalProperties": false
 }
-

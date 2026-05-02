@@ -1,303 +1,477 @@
 # Context Pack
 
-Generated: 2026-05-02T18:28:42
+Generated: 2026-05-02T18:32:57
 Repo: `C:\Users\User\Documents\crypto-bot-ccg2`
 
 ## Current Task
 
-Slice 4 complete: strategy protocol and baselines verified
+Slice 5 complete: deterministic backtest replay verified
 
 ## Git Status
 
 ```text
-M src/cbot/strategies/__init__.py
- M src/cbot/strategies/baselines.py
- M src/cbot/strategies/protocol.py
- M src/cbot/strategies/sma_cross_v1.py
- M src/cbot/types.py
-?? tests/test_strategies.py
-?? tests/test_strategy_protocol.py
+M logs/schema/v1/event-envelope.schema.json
+ M logs/schema/v1/portfolio.snapshot.schema.json
+ M logs/schema/v1/run.completed.schema.json
+ M logs/schema/v1/run.started.schema.json
+ M logs/schema/v1/simulation.fill.schema.json
+ M logs/schema/v1/strategy.signal.schema.json
+ M src/cbot/cli.py
+ M src/cbot/config.py
+ M src/cbot/engine/backtest.py
+ M src/cbot/engine/events.py
+ M tests/test_cli.py
+?? tests/test_backtest_determinism.py
+?? tests/test_config.py
 ```
 
 ## Git Diff
 
 ```diff
-diff --git a/src/cbot/strategies/__init__.py b/src/cbot/strategies/__init__.py
-index 0aa3ccf..1f57ba5 100644
---- a/src/cbot/strategies/__init__.py
-+++ b/src/cbot/strategies/__init__.py
-@@ -1,2 +1,17 @@
- """Strategy contracts and baseline strategies."""
+diff --git a/logs/schema/v1/event-envelope.schema.json b/logs/schema/v1/event-envelope.schema.json
+index 73a8d66..adc44af 100644
+--- a/logs/schema/v1/event-envelope.schema.json
++++ b/logs/schema/v1/event-envelope.schema.json
+@@ -15,7 +15,7 @@
+     },
+     "run_id": {
+       "type": "string",
+-      "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$"
++      "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$"
+     },
+     "timestamp": {
+       "type": "string",
+@@ -31,4 +31,3 @@
+   },
+   "additionalProperties": false
+ }
+-
+diff --git a/logs/schema/v1/portfolio.snapshot.schema.json b/logs/schema/v1/portfolio.snapshot.schema.json
+index 5ca7cd9..ce8ccf4 100644
+--- a/logs/schema/v1/portfolio.snapshot.schema.json
++++ b/logs/schema/v1/portfolio.snapshot.schema.json
+@@ -7,7 +7,7 @@
+   "properties": {
+     "schema_version": { "type": "string", "const": "1.0" },
+     "event_type": { "type": "string", "const": "portfolio.snapshot" },
+-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
++    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
+     "timestamp": { "type": "string", "format": "date-time" },
+     "sequence": { "type": "integer", "minimum": 1 },
+     "payload": {
+@@ -26,4 +26,3 @@
+   },
+   "additionalProperties": false
+ }
+-
+diff --git a/logs/schema/v1/run.completed.schema.json b/logs/schema/v1/run.completed.schema.json
+index 878db18..cc9d2ad 100644
+--- a/logs/schema/v1/run.completed.schema.json
++++ b/logs/schema/v1/run.completed.schema.json
+@@ -7,7 +7,7 @@
+   "properties": {
+     "schema_version": { "type": "string", "const": "1.0" },
+     "event_type": { "type": "string", "const": "run.completed" },
+-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
++    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
+     "timestamp": { "type": "string", "format": "date-time" },
+     "sequence": { "type": "integer", "minimum": 1 },
+     "payload": {
+@@ -27,4 +27,3 @@
+   },
+   "additionalProperties": false
+ }
+-
+diff --git a/logs/schema/v1/run.started.schema.json b/logs/schema/v1/run.started.schema.json
+index d900381..adef887 100644
+--- a/logs/schema/v1/run.started.schema.json
++++ b/logs/schema/v1/run.started.schema.json
+@@ -7,7 +7,7 @@
+   "properties": {
+     "schema_version": { "type": "string", "const": "1.0" },
+     "event_type": { "type": "string", "const": "run.started" },
+-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
++    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
+     "timestamp": { "type": "string", "format": "date-time" },
+     "sequence": { "type": "integer", "minimum": 1 },
+     "payload": {
+@@ -25,4 +25,3 @@
+   },
+   "additionalProperties": false
+ }
+-
+diff --git a/logs/schema/v1/simulation.fill.schema.json b/logs/schema/v1/simulation.fill.schema.json
+index 7c59d03..842863e 100644
+--- a/logs/schema/v1/simulation.fill.schema.json
++++ b/logs/schema/v1/simulation.fill.schema.json
+@@ -7,7 +7,7 @@
+   "properties": {
+     "schema_version": { "type": "string", "const": "1.0" },
+     "event_type": { "type": "string", "const": "simulation.fill" },
+-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
++    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
+     "timestamp": { "type": "string", "format": "date-time" },
+     "sequence": { "type": "integer", "minimum": 1 },
+     "payload": {
+@@ -28,4 +28,3 @@
+   },
+   "additionalProperties": false
+ }
+-
+diff --git a/logs/schema/v1/strategy.signal.schema.json b/logs/schema/v1/strategy.signal.schema.json
+index 79b6374..d2f63b9 100644
+--- a/logs/schema/v1/strategy.signal.schema.json
++++ b/logs/schema/v1/strategy.signal.schema.json
+@@ -7,7 +7,7 @@
+   "properties": {
+     "schema_version": { "type": "string", "const": "1.0" },
+     "event_type": { "type": "string", "const": "strategy.signal" },
+-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
++    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
+     "timestamp": { "type": "string", "format": "date-time" },
+     "sequence": { "type": "integer", "minimum": 1 },
+     "payload": {
+@@ -27,4 +27,3 @@
+   },
+   "additionalProperties": false
+ }
+-
+diff --git a/src/cbot/cli.py b/src/cbot/cli.py
+index 3a6134c..5867873 100644
+--- a/src/cbot/cli.py
++++ b/src/cbot/cli.py
+@@ -8,9 +8,12 @@ from datetime import UTC, datetime
+ from pathlib import Path
  
-+from cbot.strategies.baselines import BuyAndHoldStrategy, CashNoTradeStrategy
-+from cbot.strategies.sma_cross_v1 import SmaCrossV1Strategy
+ from cbot import __version__
++from cbot.config import RunConfig
++from cbot.engine.backtest import run_backtest
+ from cbot.market_data.binance import fetch_klines
+ from cbot.market_data.store import MarketDataStore
+ from cbot.market_data.validation import validate_candles
++from cbot.strategies import STRATEGIES
+ 
+ 
+ def build_parser() -> argparse.ArgumentParser:
+@@ -62,6 +65,15 @@ def handle_fetch_data(args: argparse.Namespace) -> int:
+     return 0
+ 
+ 
++def handle_backtest(args: argparse.Namespace) -> int:
++    config = RunConfig.from_yaml(Path(args.config))
++    candles = MarketDataStore(Path("data/market")).read_candles(config.symbol, config.timeframe)
++    strategy_cls = STRATEGIES[config.strategy_name]
++    result = run_backtest(config, candles, strategy_cls())
++    print(f"Wrote run {result.run_id} to {result.run_dir}")
++    return 0
 +
-+STRATEGIES = {
-+    "cash_no_trade": CashNoTradeStrategy,
-+    "buy_and_hold": BuyAndHoldStrategy,
-+    "sma_cross_v1": SmaCrossV1Strategy,
-+}
 +
-+__all__ = [
-+    "BuyAndHoldStrategy",
-+    "CashNoTradeStrategy",
-+    "SmaCrossV1Strategy",
-+    "STRATEGIES",
-+]
-diff --git a/src/cbot/strategies/baselines.py b/src/cbot/strategies/baselines.py
-index ee0b282..14a1ad1 100644
---- a/src/cbot/strategies/baselines.py
-+++ b/src/cbot/strategies/baselines.py
-@@ -1,2 +1,48 @@
--"""Cash and buy-and-hold baselines will be implemented in Slice 4."""
-+"""Baseline strategies and benchmarks."""
+ def main(argv: Sequence[str] | None = None) -> int:
+     parser = build_parser()
+     args = parser.parse_args(argv)
+@@ -72,6 +84,8 @@ def main(argv: Sequence[str] | None = None) -> int:
+ 
+     if args.command == "fetch-data":
+         return handle_fetch_data(args)
++    if args.command == "backtest":
++        return handle_backtest(args)
+ 
+     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
+     return 0
+diff --git a/src/cbot/config.py b/src/cbot/config.py
+index ee72bc4..cbb026f 100644
+--- a/src/cbot/config.py
++++ b/src/cbot/config.py
+@@ -1,2 +1,95 @@
+-"""Configuration loading will be implemented in a later slice."""
++"""Run configuration helpers."""
  
 +from __future__ import annotations
 +
-+from typing import Any, Mapping
++from dataclasses import dataclass
++from datetime import UTC, datetime
++from pathlib import Path
++from typing import Any
 +
-+from cbot.strategies.protocol import BaseStrategy, StrategyMetadata
-+from cbot.types import Candle, Signal, SignalAction
-+
-+
-+class CashNoTradeStrategy(BaseStrategy):
-+    metadata = StrategyMetadata(
-+        name="cash_no_trade",
-+        version="1.0.0",
-+        hypothesis="Holding cash is the sanity baseline for active strategy evaluation.",
-+    )
-+
-+    def on_candle(
-+        self,
-+        history: tuple[Candle, ...],
-+        portfolio_view: Mapping[str, Any],
-+        parameters: Mapping[str, Any],
-+    ) -> Signal:
-+        return Signal.hold("cash baseline never trades")
++import yaml
 +
 +
-+class BuyAndHoldStrategy(BaseStrategy):
-+    metadata = StrategyMetadata(
-+        name="buy_and_hold",
-+        version="1.0.0",
-+        hypothesis="Buying once at the start and holding is the market exposure benchmark.",
-+        warmup_candles=1,
-+    )
-+
-+    def on_candle(
-+        self,
-+        history: tuple[Candle, ...],
-+        portfolio_view: Mapping[str, Any],
-+        parameters: Mapping[str, Any],
-+    ) -> Signal:
-+        has_position = bool(portfolio_view.get("has_position", False))
-+        if not has_position:
-+            return Signal(
-+                action=SignalAction.BUY,
-+                reason="enter buy-and-hold benchmark",
-+                target_fraction=1.0,
-+            )
-+        return Signal.hold("already holding benchmark position")
-diff --git a/src/cbot/strategies/protocol.py b/src/cbot/strategies/protocol.py
-index 9e3e0ff..d93ae52 100644
---- a/src/cbot/strategies/protocol.py
-+++ b/src/cbot/strategies/protocol.py
-@@ -1,2 +1,63 @@
--"""Strategy protocol will be implemented in Slice 4."""
-+"""Strategy protocol and metadata contracts."""
- 
-+from __future__ import annotations
-+
-+from dataclasses import dataclass, field
-+from typing import Any, Mapping, Protocol, runtime_checkable
-+
-+from cbot.types import Candle, Signal
++def parse_date(value: str) -> datetime:
++    parsed = datetime.fromisoformat(value)
++    if parsed.tzinfo is None:
++        return parsed.replace(tzinfo=UTC)
++    return parsed.astimezone(UTC)
 +
 +
 +@dataclass(frozen=True)
-+class ParameterSpec:
-+    default: Any
-+    description: str
-+    minimum: float | None = None
-+    maximum: float | None = None
-+
-+
-+@dataclass(frozen=True)
-+class StrategyMetadata:
-+    name: str
-+    version: str
-+    hypothesis: str
-+    parameters: Mapping[str, ParameterSpec] = field(default_factory=dict)
-+    warmup_candles: int = 0
-+
-+    def __post_init__(self) -> None:
-+        if not self.name:
-+            raise ValueError("Strategy name is required.")
-+        if not self.version:
-+            raise ValueError("Strategy version is required.")
-+        if not self.hypothesis:
-+            raise ValueError("Strategy hypothesis is required.")
-+        if self.warmup_candles < 0:
-+            raise ValueError("warmup_candles must not be negative.")
-+
-+
-+@runtime_checkable
-+class Strategy(Protocol):
-+    metadata: StrategyMetadata
-+
-+    def validate_parameters(self, parameters: Mapping[str, Any]) -> None:
-+        ...
-+
-+    def on_candle(
-+        self,
-+        history: tuple[Candle, ...],
-+        portfolio_view: Mapping[str, Any],
-+        parameters: Mapping[str, Any],
-+    ) -> Signal:
-+        ...
-+
-+
-+class BaseStrategy:
-+    metadata: StrategyMetadata
-+
-+    def validate_parameters(self, parameters: Mapping[str, Any]) -> None:
-+        for name, spec in self.metadata.parameters.items():
-+            value = parameters.get(name, spec.default)
-+            if spec.minimum is not None and value < spec.minimum:
-+                raise ValueError(f"{name} must be >= {spec.minimum}.")
-+            if spec.maximum is not None and value > spec.maximum:
-+                raise ValueError(f"{name} must be <= {spec.maximum}.")
-diff --git a/src/cbot/strategies/sma_cross_v1.py b/src/cbot/strategies/sma_cross_v1.py
-index 0348447..9d31b05 100644
---- a/src/cbot/strategies/sma_cross_v1.py
-+++ b/src/cbot/strategies/sma_cross_v1.py
-@@ -1,2 +1,77 @@
--"""SMA crossover validation strategy will be implemented in Slice 4."""
-+"""Simple SMA crossover strategy for engine validation only."""
- 
-+from __future__ import annotations
-+
-+from typing import Any, Mapping
-+
-+from cbot.strategies.protocol import BaseStrategy, ParameterSpec, StrategyMetadata
-+from cbot.types import Candle, Signal, SignalAction
-+
-+
-+class SmaCrossV1Strategy(BaseStrategy):
-+    metadata = StrategyMetadata(
-+        name="sma_cross_v1",
-+        version="1.0.0",
-+        hypothesis=(
-+            "A fast moving average crossing a slow moving average can validate signal "
-+            "generation mechanics. This is not a profitability claim."
-+        ),
-+        parameters={
-+            "fast_window": ParameterSpec(default=20, minimum=2, description="Fast SMA window."),
-+            "slow_window": ParameterSpec(default=50, minimum=3, description="Slow SMA window."),
-+        },
-+        warmup_candles=50,
-+    )
-+
-+    def validate_parameters(self, parameters: Mapping[str, Any]) -> None:
-+        super().validate_parameters(parameters)
-+        fast_window = int(parameters.get("fast_window", self.metadata.parameters["fast_window"].default))
-+        slow_window = int(parameters.get("slow_window", self.metadata.parameters["slow_window"].default))
-+        if fast_window >= slow_window:
-+            raise ValueError("fast_window must be less than slow_window.")
-+
-+    def on_candle(
-+        self,
-+        history: tuple[Candle, ...],
-+        portfolio_view: Mapping[str, Any],
-+        parameters: Mapping[str, Any],
-+    ) -> Signal:
-+        self.validate_parameters(parameters)
-+        fast_window = int(parameters.get("fast_window", self.metadata.parameters["fast_window"].default))
-+        slow_window = int(parameters.get("slow_window", self.metadata.parameters["slow_window"].default))
-+        if len(history) < slow_window + 1:
-+            return Signal.hold("warming up")
-+
-+        previous_fast = average_close(history[-fast_window - 1 : -1])
-+        previous_slow = average_close(history[-slow_window - 1 : -1])
-+        current_fast = average_close(history[-fast_window:])
-+        current_slow = average_close(history[-slow_window:])
-+        has_position = bool(portfolio_view.get("has_position", False))
-+
-+        if previous_fast <= previous_slow and current_fast > current_slow and not has_position:
-+            return Signal(
-+                action=SignalAction.BUY,
-+                reason="fast SMA crossed above slow SMA",
-+                target_fraction=1.0,
-+                features={
-+                    "fast_sma": current_fast,
-+                    "slow_sma": current_slow,
-+                },
-+            )
-+        if previous_fast >= previous_slow and current_fast < current_slow and has_position:
-+            return Signal(
-+                action=SignalAction.EXIT,
-+                reason="fast SMA crossed below slow SMA",
-+                target_fraction=0.0,
-+                features={
-+                    "fast_sma": current_fast,
-+                    "slow_sma": current_slow,
-+                },
-+            )
-+        return Signal.hold("no crossover")
-+
-+
-+def average_close(candles: tuple[Candle, ...]) -> float:
-+    if not candles:
-+        raise ValueError("Cannot average an empty candle set.")
-+    return sum(candle.close for candle in candles) / len(candles)
-diff --git a/src/cbot/types.py b/src/cbot/types.py
-index 06ba394..b0a2fd4 100644
---- a/src/cbot/types.py
-+++ b/src/cbot/types.py
-@@ -4,6 +4,9 @@ from __future__ import annotations
- 
- from dataclasses import dataclass
- from datetime import UTC, datetime
-+from enum import StrEnum
-+from types import MappingProxyType
-+from typing import Any, Mapping
- 
- 
- def ensure_utc(value: datetime) -> datetime:
-@@ -55,3 +58,26 @@ class Candle:
-             close=float(record["close"]),
-             volume=float(record["volume"]),
-         )
-+
-+
-+class SignalAction(StrEnum):
-+    BUY = "BUY"
-+    SELL = "SELL"
-+    HOLD = "HOLD"
-+    EXIT = "EXIT"
-+
-+
-+@dataclass(frozen=True)
-+class Signal:
-+    action: SignalAction
-+    reason: str
-+    target_fraction: float | None = None
-+    features: Mapping[str, Any] = MappingProxyType({})
-+
-+    def __post_init__(self) -> None:
-+        if self.target_fraction is not None and not 0 <= self.target_fraction <= 1:
-+            raise ValueError("target_fraction must be between 0 and 1.")
++class RunConfig:
++    label: str
++    sample_label: str
++    start: datetime
++    end: datetime
++    symbol: str
++    timeframe: str
++    strategy_name: str
++    strategy_version: str
++    strategy_parameters: dict[str, Any]
++    initial_cash: float
++    base_asset: str
++    quote_asset: str
++    fee_bps: float
++    slippage_bps: float
++    max_drawdown_pct: float
++    min_trade_count: int
++    drawdown_mode: str
 +
 +    @classmethod
-+    def hold(cls, reason: str = "no signal") -> "Signal":
-+        return cls(action=SignalAction.HOLD, reason=reason)
++    def from_dict(cls, raw: dict[str, Any]) -> "RunConfig":
++        run = raw["run"]
++        market = raw["market"]
++        strategy = raw["strategy"]
++        portfolio = raw["portfolio"]
++        simulation = raw["simulation"]
++
++        start_key = "test_start" if run.get("sample_label") == "OUT_OF_SAMPLE" else "train_start"
++        end_key = "test_end" if run.get("sample_label") == "OUT_OF_SAMPLE" else "train_end"
++
++        return cls(
++            label=str(run["label"]),
++            sample_label=str(run["sample_label"]),
++            start=parse_date(str(run[start_key])),
++            end=parse_date(str(run[end_key])),
++            symbol=str(market["symbol"]),
++            timeframe=str(market["timeframe"]),
++            strategy_name=str(strategy["name"]),
++            strategy_version=str(strategy["version"]),
++            strategy_parameters=dict(strategy.get("parameters", {})),
++            initial_cash=float(portfolio["initial_cash"]),
++            base_asset=str(portfolio["base_asset"]),
++            quote_asset=str(portfolio["quote_asset"]),
++            fee_bps=float(simulation["fee_bps"]),
++            slippage_bps=float(simulation["slippage_bps"]),
++            max_drawdown_pct=float(simulation["max_drawdown_pct"]),
++            min_trade_count=int(simulation["min_trade_count"]),
++            drawdown_mode=str(simulation["drawdown_mode"]),
++        )
++
++    @classmethod
++    def from_yaml(cls, path: Path) -> "RunConfig":
++        return cls.from_dict(yaml.safe_load(path.read_text(encoding="utf-8")))
++
++    def to_event_payload(self) -> dict[str, Any]:
++        return {
++            "label": self.label,
++            "sample_label": self.sample_label,
++            "market": {
++                "symbol": self.symbol,
++                "timeframe": self.timeframe,
++            },
++            "strategy": {
++                "name": self.strategy_name,
++                "version": self.strategy_version,
++                "parameters": self.strategy_parameters,
++            },
++            "simulation": {
++                "fee_bps": self.fee_bps,
++                "slippage_bps": self.slippage_bps,
++                "max_drawdown_pct": self.max_drawdown_pct,
++                "min_trade_count": self.min_trade_count,
++                "drawdown_mode": self.drawdown_mode,
++            },
++        }
+diff --git a/src/cbot/engine/backtest.py b/src/cbot/engine/backtest.py
+index b524e40..4057a16 100644
+--- a/src/cbot/engine/backtest.py
++++ b/src/cbot/engine/backtest.py
+@@ -1,2 +1,110 @@
+-"""Deterministic backtest replay will be implemented in Slice 5."""
++"""Deterministic historical backtest replay."""
+ 
++from __future__ import annotations
++
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++from cbot.config import RunConfig
++from cbot.engine.events import JsonlEventWriter, RunDirectory, create_run_directory, write_json
++from cbot.strategies.protocol import Strategy
++from cbot.types import Candle, SignalAction
++
++
++@dataclass(frozen=True)
++class BacktestResult:
++    run_id: str
++    run_dir: Path
++    signals_seen: int
++
++
++def run_backtest(
++    config: RunConfig,
++    candles: list[Candle],
++    strategy: Strategy,
++    runs_root: Path = Path("logs/runs"),
++) -> BacktestResult:
++    if strategy.metadata.name != config.strategy_name:
++        raise ValueError(f"Config strategy {config.strategy_name} does not match {strategy.metadata.name}.")
++    if strategy.metadata.version != config.strategy_version:
++        raise ValueError(f"Config strategy version {config.strategy_version} does not match {strategy.metadata.version}.")
++
++    strategy.validate_parameters(config.strategy_parameters)
++    run_dir = create_run_directory(runs_root, config.label)
++    writer = JsonlEventWriter(run_dir.events_path)
++    write_json(run_dir.config_path, config.to_event_payload())
++    write_json(
++        run_dir.strategy_meta_path,
++        {
++            "name": strategy.metadata.name,
++            "version": strategy.metadata.version,
++            "hypothesis": strategy.metadata.hypothesis,
++            "warmup_candles": strategy.metadata.warmup_candles,
++        },
++    )
++
++    writer.write("run.started", run_dir.run_id, config.to_event_payload())
++    signals_seen = 0
++    history: list[Candle] = []
++    portfolio_view: dict[str, Any] = {
++        "has_position": False,
++        "cash": config.initial_cash,
++        "base_asset": config.base_asset,
++        "quote_asset": config.quote_asset,
++    }
++
++    for candle in candles:
++        if candle.symbol != config.symbol or candle.timeframe != config.timeframe:
++            continue
++        if not config.start <= candle.timestamp <= config.end:
++            continue
++
++        history.append(candle)
++        signal = strategy.on_candle(tuple(history), portfolio_view, config.strategy_parameters)
++        if signal.action != SignalAction.HOLD:
++            signals_seen += 1
++            writer.write(
++                "strategy.signal",
++                run_dir.run_id,
++                {
++                    "strategy": strategy.metadata.name,
++                    "symbol": candle.symbol,
++                    "timeframe": candle.timeframe,
++                    "candle_time": candle.timestamp.isoformat().replace("+00:00", "Z"),
++                    "signal": signal.action.value,
++                    "reason": signal.reason,
++                    "features": dict(signal.features),
++                },
++            )
++            if signal.action == SignalAction.BUY:
++                portfolio_view["has_position"] = True
++            elif signal.action in {SignalAction.SELL, SignalAction.EXIT}:
++                portfolio_view["has_position"] = False
++
++    writer.write(
++        "run.completed",
++        run_dir.run_id,
++        {
++            "status": "COMPLETED",
++            "verdict": "INSUFFICIENT_DATA",
++            "metrics": {
++                "signals_seen": signals_seen,
++            },
++            "warnings": ["Slice 5 emits signals only; execution simulation is not implemented yet."],
++        },
++    )
++    write_json(
++        run_dir.report_path,
++        {
++            "run_id": run_dir.run_id,
++            "status": "COMPLETED",
++            "verdict": "INSUFFICIENT_DATA",
++            "metrics": {"signals_seen": signals_seen},
++        },
++    )
++    run_dir.summary_path.write_text(
++        f"# Backtest Summary\n\nRun: `{run_dir.run_id}`\n\nSignals seen: {signals_seen}\n",
++        encoding="utf-8",
++    )
++    return BacktestResult(run_id=run_dir.run_id, run_dir=run_dir.path, signals_seen=signals_seen)
+diff --git a/src/cbot/engine/events.py b/src/cbot/engine/events.py
+index d779e8c..161585d 100644
+--- a/src/cbot/engine/events.py
++++ b/src/cbot/engine/events.py
+@@ -107,8 +107,13 @@ class RunDirectory:
+ def create_run_directory(root: Path, label: str, now: datetime | None = None) -> RunDirectory:
+     run_id = make_run_id(label, now)
+     path = root / run_id
+-    path.mkdir(parents=True, exist_ok=False)
+-    return RunDirectory(run_id=run_id, path=path)
++    candidate = path
++    suffix = 2
++    while candidate.exists():
++        candidate = root / f"{run_id}_{suffix}"
++        suffix += 1
++    candidate.mkdir(parents=True, exist_ok=False)
++    return RunDirectory(run_id=candidate.name, path=candidate)
+ 
+ 
+ def write_json(path: Path, value: dict[str, Any]) -> None:
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 01c4c48..7bd67f1 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -51,3 +51,39 @@ def test_fetch_data_command_uses_market_data_layer(monkeypatch, capsys):
+     captured = capsys.readouterr()
+     assert result == 0
+     assert "Wrote 1 candles to fake.parquet" in captured.out
++
++
++def test_backtest_command_uses_engine(monkeypatch, tmp_path, capsys):
++    config_path = tmp_path / "config.yaml"
++    config_path.write_text("{}", encoding="utf-8")
++
++    class FakeStore:
++        def __init__(self, root):
++            self.root = root
++
++        def read_candles(self, symbol, timeframe):
++            return []
++
++    class FakeConfig:
++        symbol = "BTCUSDT"
++        timeframe = "1h"
++        strategy_name = "cash_no_trade"
++
++        @classmethod
++        def from_yaml(cls, path):
++            assert path == config_path
++            return cls()
++
++    class FakeResult:
++        run_id = "run_20260502_123005_smoke"
++        run_dir = "logs/runs/run_20260502_123005_smoke"
++
++    monkeypatch.setattr("cbot.cli.RunConfig", FakeConfig)
++    monkeypatch.setattr("cbot.cli.MarketDataStore", FakeStore)
++    monkeypatch.setattr("cbot.cli.run_backtest", lambda config, candles, strategy: FakeResult())
++
++    result = main(["backtest", "--config", str(config_path)])
++
++    captured = capsys.readouterr()
++    assert result == 0
++    assert "Wrote run run_20260502_123005_smoke" in captured.out
 
 [stderr]
-warning: in the working copy of 'src/cbot/strategies/__init__.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/strategies/baselines.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/strategies/protocol.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/strategies/sma_cross_v1.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'logs/schema/v1/event-envelope.schema.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'logs/schema/v1/portfolio.snapshot.schema.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'logs/schema/v1/run.completed.schema.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'logs/schema/v1/run.started.schema.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'logs/schema/v1/simulation.fill.schema.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'logs/schema/v1/strategy.signal.schema.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/engine/backtest.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/engine/events.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/test_cli.py', LF will be replaced by CRLF the next time Git touches it
 ```
 
 ## File Tree
@@ -362,7 +536,9 @@ warning: in the working copy of 'src/cbot/types.py', LF will be replaced by CRLF
 - src\cbot\strategies\protocol.py
 - src\cbot\strategies\sma_cross_v1.py
 - src\cbot\types.py
+- tests\test_backtest_determinism.py
 - tests\test_cli.py
+- tests\test_config.py
 - tests\test_events.py
 - tests\test_market_data_binance.py
 - tests\test_market_data_store.py
@@ -2652,7 +2828,7 @@ Next Actions:
     },
     "run_id": {
       "type": "string",
-      "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$"
+      "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$"
     },
     "timestamp": {
       "type": "string",
@@ -2669,7 +2845,6 @@ Next Actions:
   "additionalProperties": false
 }
 
-
 ```
 
 ### logs\schema\v1\portfolio.snapshot.schema.json
@@ -2684,7 +2859,7 @@ Next Actions:
   "properties": {
     "schema_version": { "type": "string", "const": "1.0" },
     "event_type": { "type": "string", "const": "portfolio.snapshot" },
-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
     "timestamp": { "type": "string", "format": "date-time" },
     "sequence": { "type": "integer", "minimum": 1 },
     "payload": {
@@ -2704,7 +2879,6 @@ Next Actions:
   "additionalProperties": false
 }
 
-
 ```
 
 ### logs\schema\v1\run.completed.schema.json
@@ -2719,7 +2893,7 @@ Next Actions:
   "properties": {
     "schema_version": { "type": "string", "const": "1.0" },
     "event_type": { "type": "string", "const": "run.completed" },
-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
     "timestamp": { "type": "string", "format": "date-time" },
     "sequence": { "type": "integer", "minimum": 1 },
     "payload": {
@@ -2740,7 +2914,6 @@ Next Actions:
   "additionalProperties": false
 }
 
-
 ```
 
 ### logs\schema\v1\run.started.schema.json
@@ -2755,7 +2928,7 @@ Next Actions:
   "properties": {
     "schema_version": { "type": "string", "const": "1.0" },
     "event_type": { "type": "string", "const": "run.started" },
-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
     "timestamp": { "type": "string", "format": "date-time" },
     "sequence": { "type": "integer", "minimum": 1 },
     "payload": {
@@ -2774,7 +2947,6 @@ Next Actions:
   "additionalProperties": false
 }
 
-
 ```
 
 ### logs\schema\v1\simulation.fill.schema.json
@@ -2789,7 +2961,7 @@ Next Actions:
   "properties": {
     "schema_version": { "type": "string", "const": "1.0" },
     "event_type": { "type": "string", "const": "simulation.fill" },
-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
     "timestamp": { "type": "string", "format": "date-time" },
     "sequence": { "type": "integer", "minimum": 1 },
     "payload": {
@@ -2811,7 +2983,6 @@ Next Actions:
   "additionalProperties": false
 }
 
-
 ```
 
 ### logs\schema\v1\strategy.signal.schema.json
@@ -2826,7 +2997,7 @@ Next Actions:
   "properties": {
     "schema_version": { "type": "string", "const": "1.0" },
     "event_type": { "type": "string", "const": "strategy.signal" },
-    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
     "timestamp": { "type": "string", "format": "date-time" },
     "sequence": { "type": "integer", "minimum": 1 },
     "payload": {
@@ -2846,7 +3017,6 @@ Next Actions:
   },
   "additionalProperties": false
 }
-
 
 ```
 
@@ -3379,7 +3549,7 @@ The generated file goes to `reviews/latest/context-pack.md`.
 ### reviews\latest\context-pack.md
 
 ```text
-[Skipped: file is 153036 bytes, above 24000 byte limit]
+[Skipped: file is 159633 bytes, above 24000 byte limit]
 ```
 
 ### src\cbot\__init__.py
@@ -3407,9 +3577,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from cbot import __version__
+from cbot.config import RunConfig
+from cbot.engine.backtest import run_backtest
 from cbot.market_data.binance import fetch_klines
 from cbot.market_data.store import MarketDataStore
 from cbot.market_data.validation import validate_candles
+from cbot.strategies import STRATEGIES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -3461,6 +3634,15 @@ def handle_fetch_data(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_backtest(args: argparse.Namespace) -> int:
+    config = RunConfig.from_yaml(Path(args.config))
+    candles = MarketDataStore(Path("data/market")).read_candles(config.symbol, config.timeframe)
+    strategy_cls = STRATEGIES[config.strategy_name]
+    result = run_backtest(config, candles, strategy_cls())
+    print(f"Wrote run {result.run_id} to {result.run_dir}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -3471,6 +3653,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "fetch-data":
         return handle_fetch_data(args)
+    if args.command == "backtest":
+        return handle_backtest(args)
 
     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
     return 0
@@ -3484,8 +3668,101 @@ if __name__ == "__main__":
 ### src\cbot\config.py
 
 ```text
-"""Configuration loading will be implemented in a later slice."""
+"""Run configuration helpers."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+def parse_date(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+@dataclass(frozen=True)
+class RunConfig:
+    label: str
+    sample_label: str
+    start: datetime
+    end: datetime
+    symbol: str
+    timeframe: str
+    strategy_name: str
+    strategy_version: str
+    strategy_parameters: dict[str, Any]
+    initial_cash: float
+    base_asset: str
+    quote_asset: str
+    fee_bps: float
+    slippage_bps: float
+    max_drawdown_pct: float
+    min_trade_count: int
+    drawdown_mode: str
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "RunConfig":
+        run = raw["run"]
+        market = raw["market"]
+        strategy = raw["strategy"]
+        portfolio = raw["portfolio"]
+        simulation = raw["simulation"]
+
+        start_key = "test_start" if run.get("sample_label") == "OUT_OF_SAMPLE" else "train_start"
+        end_key = "test_end" if run.get("sample_label") == "OUT_OF_SAMPLE" else "train_end"
+
+        return cls(
+            label=str(run["label"]),
+            sample_label=str(run["sample_label"]),
+            start=parse_date(str(run[start_key])),
+            end=parse_date(str(run[end_key])),
+            symbol=str(market["symbol"]),
+            timeframe=str(market["timeframe"]),
+            strategy_name=str(strategy["name"]),
+            strategy_version=str(strategy["version"]),
+            strategy_parameters=dict(strategy.get("parameters", {})),
+            initial_cash=float(portfolio["initial_cash"]),
+            base_asset=str(portfolio["base_asset"]),
+            quote_asset=str(portfolio["quote_asset"]),
+            fee_bps=float(simulation["fee_bps"]),
+            slippage_bps=float(simulation["slippage_bps"]),
+            max_drawdown_pct=float(simulation["max_drawdown_pct"]),
+            min_trade_count=int(simulation["min_trade_count"]),
+            drawdown_mode=str(simulation["drawdown_mode"]),
+        )
+
+    @classmethod
+    def from_yaml(cls, path: Path) -> "RunConfig":
+        return cls.from_dict(yaml.safe_load(path.read_text(encoding="utf-8")))
+
+    def to_event_payload(self) -> dict[str, Any]:
+        return {
+            "label": self.label,
+            "sample_label": self.sample_label,
+            "market": {
+                "symbol": self.symbol,
+                "timeframe": self.timeframe,
+            },
+            "strategy": {
+                "name": self.strategy_name,
+                "version": self.strategy_version,
+                "parameters": self.strategy_parameters,
+            },
+            "simulation": {
+                "fee_bps": self.fee_bps,
+                "slippage_bps": self.slippage_bps,
+                "max_drawdown_pct": self.max_drawdown_pct,
+                "min_trade_count": self.min_trade_count,
+                "drawdown_mode": self.drawdown_mode,
+            },
+        }
 
 ```
 
@@ -3500,8 +3777,116 @@ if __name__ == "__main__":
 ### src\cbot\engine\backtest.py
 
 ```text
-"""Deterministic backtest replay will be implemented in Slice 5."""
+"""Deterministic historical backtest replay."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from cbot.config import RunConfig
+from cbot.engine.events import JsonlEventWriter, RunDirectory, create_run_directory, write_json
+from cbot.strategies.protocol import Strategy
+from cbot.types import Candle, SignalAction
+
+
+@dataclass(frozen=True)
+class BacktestResult:
+    run_id: str
+    run_dir: Path
+    signals_seen: int
+
+
+def run_backtest(
+    config: RunConfig,
+    candles: list[Candle],
+    strategy: Strategy,
+    runs_root: Path = Path("logs/runs"),
+) -> BacktestResult:
+    if strategy.metadata.name != config.strategy_name:
+        raise ValueError(f"Config strategy {config.strategy_name} does not match {strategy.metadata.name}.")
+    if strategy.metadata.version != config.strategy_version:
+        raise ValueError(f"Config strategy version {config.strategy_version} does not match {strategy.metadata.version}.")
+
+    strategy.validate_parameters(config.strategy_parameters)
+    run_dir = create_run_directory(runs_root, config.label)
+    writer = JsonlEventWriter(run_dir.events_path)
+    write_json(run_dir.config_path, config.to_event_payload())
+    write_json(
+        run_dir.strategy_meta_path,
+        {
+            "name": strategy.metadata.name,
+            "version": strategy.metadata.version,
+            "hypothesis": strategy.metadata.hypothesis,
+            "warmup_candles": strategy.metadata.warmup_candles,
+        },
+    )
+
+    writer.write("run.started", run_dir.run_id, config.to_event_payload())
+    signals_seen = 0
+    history: list[Candle] = []
+    portfolio_view: dict[str, Any] = {
+        "has_position": False,
+        "cash": config.initial_cash,
+        "base_asset": config.base_asset,
+        "quote_asset": config.quote_asset,
+    }
+
+    for candle in candles:
+        if candle.symbol != config.symbol or candle.timeframe != config.timeframe:
+            continue
+        if not config.start <= candle.timestamp <= config.end:
+            continue
+
+        history.append(candle)
+        signal = strategy.on_candle(tuple(history), portfolio_view, config.strategy_parameters)
+        if signal.action != SignalAction.HOLD:
+            signals_seen += 1
+            writer.write(
+                "strategy.signal",
+                run_dir.run_id,
+                {
+                    "strategy": strategy.metadata.name,
+                    "symbol": candle.symbol,
+                    "timeframe": candle.timeframe,
+                    "candle_time": candle.timestamp.isoformat().replace("+00:00", "Z"),
+                    "signal": signal.action.value,
+                    "reason": signal.reason,
+                    "features": dict(signal.features),
+                },
+            )
+            if signal.action == SignalAction.BUY:
+                portfolio_view["has_position"] = True
+            elif signal.action in {SignalAction.SELL, SignalAction.EXIT}:
+                portfolio_view["has_position"] = False
+
+    writer.write(
+        "run.completed",
+        run_dir.run_id,
+        {
+            "status": "COMPLETED",
+            "verdict": "INSUFFICIENT_DATA",
+            "metrics": {
+                "signals_seen": signals_seen,
+            },
+            "warnings": ["Slice 5 emits signals only; execution simulation is not implemented yet."],
+        },
+    )
+    write_json(
+        run_dir.report_path,
+        {
+            "run_id": run_dir.run_id,
+            "status": "COMPLETED",
+            "verdict": "INSUFFICIENT_DATA",
+            "metrics": {"signals_seen": signals_seen},
+        },
+    )
+    run_dir.summary_path.write_text(
+        f"# Backtest Summary\n\nRun: `{run_dir.run_id}`\n\nSignals seen: {signals_seen}\n",
+        encoding="utf-8",
+    )
+    return BacktestResult(run_id=run_dir.run_id, run_dir=run_dir.path, signals_seen=signals_seen)
 
 ```
 
@@ -3617,8 +4002,13 @@ class RunDirectory:
 def create_run_directory(root: Path, label: str, now: datetime | None = None) -> RunDirectory:
     run_id = make_run_id(label, now)
     path = root / run_id
-    path.mkdir(parents=True, exist_ok=False)
-    return RunDirectory(run_id=run_id, path=path)
+    candidate = path
+    suffix = 2
+    while candidate.exists():
+        candidate = root / f"{run_id}_{suffix}"
+        suffix += 1
+    candidate.mkdir(parents=True, exist_ok=False)
+    return RunDirectory(run_id=candidate.name, path=candidate)
 
 
 def write_json(path: Path, value: dict[str, Any]) -> None:
@@ -4259,6 +4649,83 @@ class Signal:
 
 ```
 
+### tests\test_backtest_determinism.py
+
+```text
+import json
+from datetime import UTC, datetime, timedelta
+
+from cbot.config import RunConfig
+from cbot.engine.backtest import run_backtest
+from cbot.strategies.sma_cross_v1 import SmaCrossV1Strategy
+from cbot.types import Candle
+
+from tests.test_config import raw_config
+
+
+def candles_from_closes(closes):
+    return [
+        Candle(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            timestamp=datetime(2021, 1, 1, tzinfo=UTC) + timedelta(hours=index),
+            open=close,
+            high=close + 1,
+            low=close - 1,
+            close=close,
+            volume=10,
+        )
+        for index, close in enumerate(closes)
+    ]
+
+
+def normalized_events(run_dir):
+    records = [
+        json.loads(line)
+        for line in (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    for record in records:
+        record["run_id"] = "<run>"
+        record["timestamp"] = "<timestamp>"
+    return records
+
+
+def test_backtest_writes_reproducible_event_stream(tmp_path):
+    config = RunConfig.from_dict(raw_config())
+    candles = candles_from_closes([10, 10, 10, 10, 20, 20, 20])
+    strategy = SmaCrossV1Strategy()
+
+    first = run_backtest(config, candles, strategy, tmp_path)
+    second = run_backtest(config, candles, strategy, tmp_path)
+
+    assert first.signals_seen == second.signals_seen == 1
+    assert normalized_events(first.run_dir) == normalized_events(second.run_dir)
+
+
+def test_backtest_writes_run_artifacts(tmp_path):
+    config = RunConfig.from_dict(raw_config())
+    result = run_backtest(config, candles_from_closes([10, 10, 10, 10, 20]), SmaCrossV1Strategy(), tmp_path)
+
+    assert (result.run_dir / "config.resolved.json").exists()
+    assert (result.run_dir / "strategy.meta.json").exists()
+    assert (result.run_dir / "events.jsonl").exists()
+    assert (result.run_dir / "report.json").exists()
+    assert (result.run_dir / "summary.md").exists()
+
+
+def test_backtest_rejects_strategy_mismatch(tmp_path):
+    config = RunConfig.from_dict(raw_config())
+    changed = config.__class__(**{**config.__dict__, "strategy_name": "other"})
+
+    try:
+        run_backtest(changed, [], SmaCrossV1Strategy(), tmp_path)
+    except ValueError as error:
+        assert "does not match" in str(error)
+    else:
+        raise AssertionError("Expected strategy mismatch to fail")
+
+```
+
 ### tests\test_cli.py
 
 ```text
@@ -4315,6 +4782,105 @@ def test_fetch_data_command_uses_market_data_layer(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert result == 0
     assert "Wrote 1 candles to fake.parquet" in captured.out
+
+
+def test_backtest_command_uses_engine(monkeypatch, tmp_path, capsys):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}", encoding="utf-8")
+
+    class FakeStore:
+        def __init__(self, root):
+            self.root = root
+
+        def read_candles(self, symbol, timeframe):
+            return []
+
+    class FakeConfig:
+        symbol = "BTCUSDT"
+        timeframe = "1h"
+        strategy_name = "cash_no_trade"
+
+        @classmethod
+        def from_yaml(cls, path):
+            assert path == config_path
+            return cls()
+
+    class FakeResult:
+        run_id = "run_20260502_123005_smoke"
+        run_dir = "logs/runs/run_20260502_123005_smoke"
+
+    monkeypatch.setattr("cbot.cli.RunConfig", FakeConfig)
+    monkeypatch.setattr("cbot.cli.MarketDataStore", FakeStore)
+    monkeypatch.setattr("cbot.cli.run_backtest", lambda config, candles, strategy: FakeResult())
+
+    result = main(["backtest", "--config", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Wrote run run_20260502_123005_smoke" in captured.out
+
+```
+
+### tests\test_config.py
+
+```text
+from datetime import UTC, datetime
+
+from cbot.config import RunConfig
+
+
+def raw_config(sample_label="IN_SAMPLE"):
+    return {
+        "run": {
+            "label": "smoke",
+            "sample_label": sample_label,
+            "train_start": "2021-01-01",
+            "train_end": "2021-12-31",
+            "test_start": "2022-01-01",
+            "test_end": "2022-12-31",
+        },
+        "market": {
+            "exchange": "binance",
+            "symbol": "BTCUSDT",
+            "quote": "USDT",
+            "timeframe": "1h",
+        },
+        "strategy": {
+            "name": "sma_cross_v1",
+            "version": "1.0.0",
+            "parameters": {"fast_window": 2, "slow_window": 4},
+        },
+        "portfolio": {
+            "initial_cash": 10000,
+            "base_asset": "BTC",
+            "quote_asset": "USDT",
+        },
+        "simulation": {
+            "fee_bps": 10,
+            "slippage_bps": 20,
+            "max_drawdown_pct": 20,
+            "min_trade_count": 30,
+            "drawdown_mode": "flag_only",
+        },
+    }
+
+
+def test_run_config_uses_train_window_for_in_sample():
+    config = RunConfig.from_dict(raw_config("IN_SAMPLE"))
+    assert config.start == datetime(2021, 1, 1, tzinfo=UTC)
+    assert config.end == datetime(2021, 12, 31, tzinfo=UTC)
+
+
+def test_run_config_uses_test_window_for_out_of_sample():
+    config = RunConfig.from_dict(raw_config("OUT_OF_SAMPLE"))
+    assert config.start == datetime(2022, 1, 1, tzinfo=UTC)
+    assert config.end == datetime(2022, 12, 31, tzinfo=UTC)
+
+
+def test_run_config_event_payload_contains_required_groups():
+    payload = RunConfig.from_dict(raw_config()).to_event_payload()
+    assert {"label", "sample_label", "market", "strategy", "simulation"} <= set(payload)
+
 
 ```
 

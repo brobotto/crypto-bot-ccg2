@@ -15,7 +15,7 @@
     },
     "run_id": {
       "type": "string",
-      "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$"
+      "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$"
     },
     "timestamp": {
       "type": "string",
@@ -31,4 +31,3 @@
   },
   "additionalProperties": false
 }
-

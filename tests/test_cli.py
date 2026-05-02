@@ -51,3 +51,39 @@ def test_fetch_data_command_uses_market_data_layer(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert result == 0
     assert "Wrote 1 candles to fake.parquet" in captured.out
+
+
+def test_backtest_command_uses_engine(monkeypatch, tmp_path, capsys):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}", encoding="utf-8")
+
+    class FakeStore:
+        def __init__(self, root):
+            self.root = root
+
+        def read_candles(self, symbol, timeframe):
+            return []
+
+    class FakeConfig:
+        symbol = "BTCUSDT"
+        timeframe = "1h"
+        strategy_name = "cash_no_trade"
+
+        @classmethod
+        def from_yaml(cls, path):
+            assert path == config_path
+            return cls()
+
+    class FakeResult:
+        run_id = "run_20260502_123005_smoke"
+        run_dir = "logs/runs/run_20260502_123005_smoke"
+
+    monkeypatch.setattr("cbot.cli.RunConfig", FakeConfig)
+    monkeypatch.setattr("cbot.cli.MarketDataStore", FakeStore)
+    monkeypatch.setattr("cbot.cli.run_backtest", lambda config, candles, strategy: FakeResult())
+
+    result = main(["backtest", "--config", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Wrote run run_20260502_123005_smoke" in captured.out

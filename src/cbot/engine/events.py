@@ -107,8 +107,13 @@ class RunDirectory:
 def create_run_directory(root: Path, label: str, now: datetime | None = None) -> RunDirectory:
     run_id = make_run_id(label, now)
     path = root / run_id
-    path.mkdir(parents=True, exist_ok=False)
-    return RunDirectory(run_id=run_id, path=path)
+    candidate = path
+    suffix = 2
+    while candidate.exists():
+        candidate = root / f"{run_id}_{suffix}"
+        suffix += 1
+    candidate.mkdir(parents=True, exist_ok=False)
+    return RunDirectory(run_id=candidate.name, path=candidate)
 
 
 def write_json(path: Path, value: dict[str, Any]) -> None:

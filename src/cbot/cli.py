@@ -8,9 +8,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from cbot import __version__
+from cbot.config import RunConfig
+from cbot.engine.backtest import run_backtest
 from cbot.market_data.binance import fetch_klines
 from cbot.market_data.store import MarketDataStore
 from cbot.market_data.validation import validate_candles
+from cbot.strategies import STRATEGIES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,6 +65,15 @@ def handle_fetch_data(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_backtest(args: argparse.Namespace) -> int:
+    config = RunConfig.from_yaml(Path(args.config))
+    candles = MarketDataStore(Path("data/market")).read_candles(config.symbol, config.timeframe)
+    strategy_cls = STRATEGIES[config.strategy_name]
+    result = run_backtest(config, candles, strategy_cls())
+    print(f"Wrote run {result.run_id} to {result.run_dir}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -72,6 +84,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "fetch-data":
         return handle_fetch_data(args)
+    if args.command == "backtest":
+        return handle_backtest(args)
 
     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
     return 0
