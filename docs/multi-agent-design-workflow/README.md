@@ -11,16 +11,22 @@ The workflow is round-based. Each round produces a short decision record that ca
 
 ## Round Sequence
 
-1. `Round 0 - Problem Framing`
+1. `Round -1 - Trading Bot Principles`
+   - Define what a good and potentially profitable crypto trading bot requires.
+   - Establish safety, validation, and profitability standards before project-specific design.
+2. `Round 0 - Problem Framing`
    - Define the actual problem, users, success criteria, constraints, and unknowns.
    - No solution is selected in this round.
-2. `Round 1 - Candidate Designs`
+3. `Round 0B - Brief Synthesis`
+   - Codex-Arbiter turns Round 0 agent answers into the canonical problem brief.
+4. `Round 1 - Candidate Designs`
    - Each design agent proposes one or more viable approaches.
-3. `Round 2 - Critique and Risk`
+5. `Round 2 - Critique and Risk`
    - Agents critique designs from their role perspective.
-4. `Round 3 - Synthesis`
+   - Start from [Round 2 Cross Review Brief](./round-2-cross-review-brief.md).
+6. `Round 3 - Synthesis`
    - Codex-Arbiter selects or combines a direction and records tradeoffs.
-5. `Round 4 - Implementation Plan`
+7. `Round 4 - Implementation Plan`
    - Convert the selected design into files, tasks, tests, and rollout steps.
 
 ## Operating Rules
@@ -38,4 +44,4 @@ The workflow is round-based. Each round produces a short decision record that ca
 
 ## Current Starting Point
 
-Begin with [Round 0 Problem Framing](./round-0-problem-framing.md).
+Begin with [Round -1 Trading Bot Principles](./round-minus-1-trading-bot-principles.md), then continue to [Round 0 Problem Framing](./round-0-problem-framing.md), [Round 0 Brief Synthesis](./round-0-brief-synthesis.md), the canonical [Problem Brief](./00-problem-brief.md), [Round 1 Candidate Designs](./round-1-candidate-designs.md), and [Round 2 Cross Review Brief](./round-2-cross-review-brief.md).

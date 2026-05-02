@@ -18,13 +18,23 @@ Round 0 does not choose libraries, exchanges, strategies, infrastructure, or imp
   - `Claude`
   - `Gemini`
   - `Codex-Arbiter`
-- The project name suggests a crypto bot, but the exact product scope is not yet defined.
+- The first milestone should include backtesting, paper trading readiness, alerting, and portfolio monitoring.
+- Milestone 1 must not use real funds. It should use backtesting and paper/dry-run behavior before any live execution is considered.
+- The first market scope is Binance spot.
+- The first assets are `BTC/USDT` and `ETH/USDT`.
+- There is no confirmed strategy hypothesis yet.
+- The first operator interface should be log files, not a web dashboard.
+- The initial risk tolerance is maximum drawdown of `10-20%`.
+- The initial backtest timeframe should be `1h`.
+- The user is interested in both historical backtesting and live market dry-run, but is open to sequencing historical data first and live dry-run later.
+- If live market dry-run is included, Binance read-only account support may be useful, but this is not confirmed.
+- The user is interested in both a strategy plugin interface and a strategy research workflow.
 
 ## Working Problem Statement
 
-ASSUMPTION: This repo will contain a crypto trading or crypto automation bot.
+This repo should start as a crypto research and safety-first automation project for Binance spot `BTC/USDT` and `ETH/USDT`. Milestone 1 should support backtesting, paper trading readiness, alerting, portfolio monitoring, and log-based auditability without placing live orders or using real funds.
 
-The immediate problem is not yet "build the bot." The immediate problem is to define what kind of bot this should be, what risk boundaries it must obey, what success looks like, and what information the design team needs before proposing an architecture.
+Because there is no confirmed strategy hypothesis yet, the immediate problem is not "build a profitable bot." The immediate problem is to design a narrow system that helps form, test, compare, and monitor trading hypotheses honestly under realistic costs and risk assumptions.
 
 ## Round 0 Prompts
 
@@ -86,15 +96,15 @@ Assumptions:
 
 Questions:
 
-- QUESTION: Is this bot for live trading, paper trading, alerts, portfolio monitoring, backtesting, or some combination?
-- QUESTION: Which exchanges, chains, wallets, or data providers are in scope?
-- QUESTION: Is the bot allowed to place orders automatically?
-- QUESTION: What maximum loss, position sizing, and kill-switch rules are mandatory?
-- QUESTION: Should this run locally, on a VPS, in containers, or as a cloud service?
+- QUESTION: Should milestone 1 include both historical backtesting and live market dry-run, or should live dry-run wait until historical simulation is trustworthy?
+- QUESTION: Should Binance read-only account monitoring be included in milestone 1, or should portfolio monitoring start with simulated paper portfolio state only?
+- QUESTION: Should the first architecture prioritize a strategy plugin interface, a strategy research workflow, or a parallel strategy-monitoring system?
+- QUESTION: How should the system help discover or compare strategies when no hypothesis is confirmed yet?
+- QUESTION: What first class of strategy should be used only as a baseline to test the framework, without implying it is profitable?
 
 Recommendation:
 
-Keep Round 0 focused on risk boundaries and operating mode. Do not choose a tech stack until the bot type and automation level are clear.
+Keep Round 0 focused on defining a research/backtesting/paper-monitoring system, not a live trading bot. Do not choose a tech stack until strategy interface, data needs, and simulation fidelity are clearer.
 
 Risks:
 
@@ -123,6 +133,8 @@ Questions:
 - QUESTION: What should the bot do when market data, exchange APIs, or network connections fail?
 - QUESTION: How should the operator review, override, pause, or audit bot behavior?
 - QUESTION: What is the acceptable balance between speed, safety, and explainability?
+- QUESTION: Since there is no strategy hypothesis yet, should the first milestone include strategy exploration tools, a plugin interface for manually supplied strategies, or both?
+- QUESTION: If multiple strategies are evaluated in parallel, how should the operator avoid overfitting and false confidence?
 
 Recommendation:
 
@@ -162,6 +174,8 @@ Questions:
 - QUESTION: Is real money involved in milestone 1?
 - QUESTION: Are signals/rules already defined, or is strategy design part of this repo?
 - QUESTION: Does the bot need a UI, CLI, chat interface, API, or only background jobs?
+- QUESTION: Should the first design sequence be historical candles first, then live WebSocket dry-run, then read-only portfolio monitoring?
+- QUESTION: Does Binance read-only monitoring materially improve milestone 1, or does it add unnecessary security and setup complexity?
 
 Recommendation:
 
@@ -174,14 +188,24 @@ Risks:
 
 ## Codex-Arbiter Synthesis
 
+### Round 0 Agent Answer Summary
+
+Codex-Architect framed the project as a non-live research and simulation system. The strongest point was sequencing: milestone 1 should prove trustworthy evaluation, reproducible results, structured audit logs, and rejection criteria before live market dry-run or read-only Binance account integration are assumed.
+
+Claude challenged the scope and argued that the project contains two different goals: research tooling and runtime infrastructure. The strongest point was that milestone 1 needs explicit exit criteria, a defined structured log schema, and a decision about whether the strategy interface is a real plugin contract or a provisional internal abstraction.
+
+Gemini framed the project as a hypothesis-first research platform. The strongest point was that high-fidelity backtesting and strategy comparison are more valuable in milestone 1 than live dry-run, because live dry-run on a `1h` timeframe takes weeks to produce meaningful evidence. Gemini also recommended sensitivity analysis over automated optimization to reduce curve fitting.
+
 Canonical problem statement:
 
-This repo needs a deliberate design process for a crypto automation project whose exact scope is not yet defined. Before architecture begins, the team must determine the bot's operating mode, automation level, user controls, risk boundaries, and first milestone.
+This repo should build a safety-first crypto research and paper-readiness system for Binance spot `BTC/USDT` and `ETH/USDT` on a first target timeframe of `1h`. The first milestone should support historical backtesting, alerting, log-based observability, and portfolio monitoring without placing live orders or using real funds. Live market dry-run and Binance read-only account monitoring are desirable but should be debated for sequencing and complexity. Because no strategy hypothesis is confirmed yet, the architecture must make strategy hypotheses easy to define, test, compare, monitor, and reject rather than assuming a profitable strategy already exists.
 
 In scope for Round 0:
 
-- Clarifying bot type and first milestone.
-- Identifying risk, safety, and human-control requirements.
+- Clarifying the first milestone around backtesting, paper trading readiness, alerts, portfolio monitoring, and log files.
+- Identifying risk, safety, and human-control requirements for non-live operation.
+- Clarifying data source and simulation fidelity requirements for Binance spot.
+- Clarifying whether portfolio monitoring uses real read-only account data or simulated state.
 - Recording blocking questions and assumptions.
 - Preparing for candidate architecture designs in Round 1.
 
@@ -191,27 +215,39 @@ Out of scope for Round 0:
 - Choosing exchange SDKs or trading libraries.
 - Writing trading strategy code.
 - Designing live order execution flows.
+- Enabling real-money trading.
+- Supporting leverage, futures, margin, or withdrawals.
 
 Blocking questions:
 
-- Is milestone 1 live trading, paper trading, alerts, backtesting, portfolio tracking, research, or on-chain automation?
-- Will the bot handle real funds or private keys in milestone 1?
-- What user approval or kill-switch controls are required?
-- What exchange, chain, wallet, or market-data source is targeted first?
-- What interface should the operator use first: CLI, web UI, chat, API, or background service only?
+- What is the formal milestone 1 exit condition?
+- What exact structured log format and event schema should be treated as the first operator interface?
+- Should the strategy interface in milestone 1 be a real plugin contract or a provisional internal abstraction?
+- What minimum simulation realism is required for milestone 1: fees only, fees plus spread/slippage, or partial fill/latency assumptions?
+- What benchmark should strategy candidates be compared against, such as buy-and-hold, cash, or simple baseline strategies?
 
 Non-blocking assumptions:
 
 - The repo is early enough that workflow docs can define the decision process.
 - The first implementation should be narrow and reversible.
 - Safety and auditability should be treated as first-class design concerns.
+- Binance is the initial exchange/data source.
+- `BTC/USDT` and `ETH/USDT` are enough for milestone 1.
+- Spot-only scope excludes leverage, margin, futures, and perpetuals.
+- Log files are sufficient for the first operator interface if they are structured and easy to audit.
+- Maximum drawdown of `10-20%` is a project-level risk boundary for evaluation and future paper/live controls.
+- The first timeframe is `1h`.
+- Live market dry-run should be sequenced after historical backtesting is reliable.
+- Binance read-only account monitoring should be deferred unless Round 1 identifies a strong reason to include it.
+- Milestone 1 portfolio monitoring can start with simulated portfolio state.
+- The research workflow should prioritize comparison and sensitivity analysis over automated parameter optimization.
 
 Decision:
 
-Do not proceed to Round 1 candidate designs until the blocking questions above are answered or explicitly accepted as assumptions.
+Proceed to Round 1 candidate designs with a narrower milestone: historical backtesting, simulated portfolio monitoring, structured logs, strategy comparison/research workflow, and a carefully scoped strategy extension boundary. Live market dry-run and Binance read-only account monitoring are deferred to milestone 2 unless an architect can justify a minimal interface stub that does not add credential or runtime complexity.
 
 Next actions:
 
-1. User answers the blocking questions.
-2. Codex-Arbiter updates this document with the chosen first milestone.
-3. Round 1 begins with candidate designs constrained to that milestone.
+1. Codex-Arbiter updates the neutral problem brief with this narrower milestone.
+2. Codex-Architect, Claude, and Gemini propose Round 1 candidate architectures constrained to the non-live milestone.
+3. Round 1 proposals must explicitly answer the remaining architecture questions: log schema, strategy boundary, data persistence, backtest realism, metrics, and anti-overfitting workflow.
