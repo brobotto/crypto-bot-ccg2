@@ -26,6 +26,8 @@ The workflow is round-based. Each round produces a short decision record that ca
    - Start from [Round 2 Cross Review Brief](./round-2-cross-review-brief.md).
 6. `Round 3 - Synthesis`
    - Codex-Arbiter selects or combines a direction and records tradeoffs.
+   - Start from [Round 3 Arbiter Brief](./round-3-arbiter-brief.md).
+   - Final decision: [Round 3 Final Architecture](./round-3-final-architecture.md).
 7. `Round 4 - Implementation Plan`
    - Convert the selected design into files, tasks, tests, and rollout steps.
 
@@ -44,4 +46,4 @@ The workflow is round-based. Each round produces a short decision record that ca
 
 ## Current Starting Point
 
-Begin with [Round -1 Trading Bot Principles](./round-minus-1-trading-bot-principles.md), then continue to [Round 0 Problem Framing](./round-0-problem-framing.md), [Round 0 Brief Synthesis](./round-0-brief-synthesis.md), the canonical [Problem Brief](./00-problem-brief.md), [Round 1 Candidate Designs](./round-1-candidate-designs.md), and [Round 2 Cross Review Brief](./round-2-cross-review-brief.md).
+Begin with [Round -1 Trading Bot Principles](./round-minus-1-trading-bot-principles.md), then continue to [Round 0 Problem Framing](./round-0-problem-framing.md), [Round 0 Brief Synthesis](./round-0-brief-synthesis.md), the canonical [Problem Brief](./00-problem-brief.md), [Round 1 Candidate Designs](./round-1-candidate-designs.md), [Round 2 Cross Review](./round-2-cross-review.md), and [Round 3 Arbiter Brief](./round-3-arbiter-brief.md).
