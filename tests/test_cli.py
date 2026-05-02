@@ -87,3 +87,68 @@ def test_backtest_command_uses_engine(monkeypatch, tmp_path, capsys):
     captured = capsys.readouterr()
     assert result == 0
     assert "Wrote run run_20260502_123005_smoke" in captured.out
+
+
+def test_compare_command_renders_comparison(monkeypatch, capsys):
+    monkeypatch.setattr("cbot.cli.compare_runs", lambda runs: {"runs": [], "warnings": []})
+    monkeypatch.setattr("cbot.cli.render_comparison", lambda comparison: "comparison text")
+
+    result = main(["compare", "--runs", "a", "b"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "comparison text" in captured.out
+
+
+def test_report_command_prints_key_metrics(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "cbot.cli.load_report",
+        lambda run: {
+            "run_id": "run_a",
+            "verdict": "CONDITIONAL",
+            "metrics": {
+                "total_return_pct": 1.23,
+                "max_drawdown_pct": 4.56,
+            },
+        },
+    )
+
+    result = main(["report", "--run", "run_a"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Verdict: CONDITIONAL" in captured.out
+
+
+def test_sensitivity_command_runs_sweep(monkeypatch, tmp_path, capsys):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}", encoding="utf-8")
+
+    class FakeConfig:
+        symbol = "BTCUSDT"
+        timeframe = "1h"
+
+        @classmethod
+        def from_yaml(cls, path):
+            return cls()
+
+    class FakeStore:
+        def __init__(self, root):
+            pass
+
+        def read_candles(self, symbol, timeframe):
+            return []
+
+    class FakeResult:
+        run_id = "run_a"
+        run_dir = "logs/runs/run_a"
+
+    monkeypatch.setattr("cbot.cli.RunConfig", FakeConfig)
+    monkeypatch.setattr("cbot.cli.MarketDataStore", FakeStore)
+    monkeypatch.setattr("cbot.cli.run_sensitivity", lambda **kwargs: [FakeResult()])
+
+    result = main(["sensitivity", "--config", str(config_path), "--param", "x", "--values", "1,2"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "No winner was selected" in captured.out

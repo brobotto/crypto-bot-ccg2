@@ -13,6 +13,8 @@ from cbot.engine.backtest import run_backtest
 from cbot.market_data.binance import fetch_klines
 from cbot.market_data.store import MarketDataStore
 from cbot.market_data.validation import validate_candles
+from cbot.research.compare import compare_runs, load_report, render_comparison
+from cbot.research.sensitivity import parse_values, run_sensitivity
 from cbot.strategies import STRATEGIES
 
 
@@ -74,6 +76,38 @@ def handle_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_compare(args: argparse.Namespace) -> int:
+    comparison = compare_runs([Path(run) for run in args.runs])
+    print(render_comparison(comparison))
+    return 0
+
+
+def handle_sensitivity(args: argparse.Namespace) -> int:
+    config = RunConfig.from_yaml(Path(args.config))
+    candles = MarketDataStore(Path("data/market")).read_candles(config.symbol, config.timeframe)
+    results = run_sensitivity(
+        config=config,
+        candles=candles,
+        parameter=args.param,
+        values=parse_values(args.values),
+        runs_root=Path("logs/runs"),
+    )
+    print("Sensitivity runs completed:")
+    for result in results:
+        print(f"- {result.run_id}: {result.run_dir}")
+    print("No winner was selected; compare the generated reports before making decisions.")
+    return 0
+
+
+def handle_report(args: argparse.Namespace) -> int:
+    report = load_report(Path(args.run))
+    print(f"Run: {report['run_id']}")
+    print(f"Verdict: {report['verdict']}")
+    print(f"Total return: {report['metrics']['total_return_pct']:.4f}%")
+    print(f"Max drawdown: {report['metrics']['max_drawdown_pct']:.4f}%")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -86,6 +120,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return handle_fetch_data(args)
     if args.command == "backtest":
         return handle_backtest(args)
+    if args.command == "compare":
+        return handle_compare(args)
+    if args.command == "sensitivity":
+        return handle_sensitivity(args)
+    if args.command == "report":
+        return handle_report(args)
 
     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
     return 0

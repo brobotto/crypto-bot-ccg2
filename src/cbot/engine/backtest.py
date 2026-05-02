@@ -10,6 +10,9 @@ from cbot.config import RunConfig
 from cbot.engine.events import JsonlEventWriter, RunDirectory, create_run_directory, write_json
 from cbot.engine.execution import ExecutionSettings, ExecutionSimulator
 from cbot.engine.portfolio import Portfolio
+from cbot.research.metrics import calculate_metrics
+from cbot.research.reporter import ResearchReport, write_report
+from cbot.research.verdicts import choose_verdict
 from cbot.strategies.protocol import Strategy
 from cbot.types import Candle, Fill, SignalAction
 
@@ -50,6 +53,7 @@ def run_backtest(
     writer.write("run.started", run_dir.run_id, config.to_event_payload())
     signals_seen = 0
     fills_seen = 0
+    total_fees = 0.0
     history: list[Candle] = []
     portfolio = Portfolio(
         cash=config.initial_cash,
@@ -88,6 +92,7 @@ def run_backtest(
                 fill = execution.simulate_fill(intent, candle, portfolio)
                 if fill:
                     portfolio.apply_fill(fill)
+                    total_fees += fill.fee
                     fills_seen += 1
                     writer.write("simulation.fill", run_dir.run_id, fill_payload(fill))
                     writer.write(
@@ -96,43 +101,47 @@ def run_backtest(
                         portfolio.snapshot(candle.close),
                     )
 
+    final_price = history[-1].close if history else config.initial_cash
+    first_price = history[0].close if history else None
+    metrics = calculate_metrics(
+        portfolio=portfolio,
+        initial_cash=config.initial_cash,
+        final_price=final_price,
+        first_price=first_price,
+        total_fees=total_fees,
+    )
+    verdict, warnings = choose_verdict(
+        metrics=metrics,
+        max_drawdown_pct=config.max_drawdown_pct,
+        min_trade_count=config.min_trade_count,
+        sample_label=config.sample_label,
+    )
+    warnings.append("BASIC_EXECUTION_SIMULATION")
+
     writer.write(
         "run.completed",
         run_dir.run_id,
         {
             "status": "COMPLETED",
-            "verdict": "INSUFFICIENT_DATA",
+            "verdict": verdict.value,
             "metrics": {
+                **metrics.to_dict(),
                 "signals_seen": signals_seen,
                 "fills_seen": fills_seen,
-                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
-                "max_drawdown_pct": portfolio.max_drawdown_pct,
             },
-            "warnings": ["Slice 6 simulation is basic; metrics/verdict rules are implemented in later slices."],
+            "warnings": warnings,
         },
     )
-    write_json(
-        run_dir.report_path,
-        {
-            "run_id": run_dir.run_id,
-            "status": "COMPLETED",
-            "verdict": "INSUFFICIENT_DATA",
-            "metrics": {
-                "signals_seen": signals_seen,
-                "fills_seen": fills_seen,
-                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
-                "max_drawdown_pct": portfolio.max_drawdown_pct,
-            },
-        },
-    )
-    run_dir.summary_path.write_text(
-        (
-            "# Backtest Summary\n\n"
-            f"Run: `{run_dir.run_id}`\n\n"
-            f"Signals seen: {signals_seen}\n\n"
-            f"Fills seen: {fills_seen}\n"
+    write_report(
+        ResearchReport(
+            run_id=run_dir.run_id,
+            status="COMPLETED",
+            verdict=verdict,
+            metrics=metrics,
+            warnings=warnings,
         ),
-        encoding="utf-8",
+        run_dir.report_path,
+        run_dir.summary_path,
     )
     return BacktestResult(
         run_id=run_dir.run_id,

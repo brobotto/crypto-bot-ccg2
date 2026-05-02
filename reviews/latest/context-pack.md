@@ -1,368 +1,1649 @@
 # Context Pack
 
-Generated: 2026-05-02T18:41:09
+Generated: 2026-05-02T18:47:24
 Repo: `C:\Users\User\Documents\crypto-bot-ccg2`
 
 ## Current Task
 
-Slice 6 complete: execution and portfolio simulation verified
+Slice 8 complete: comparison and sensitivity verified
 
 ## Git Status
 
 ```text
-M src/cbot/engine/backtest.py
- M src/cbot/engine/execution.py
- M src/cbot/engine/portfolio.py
- M src/cbot/types.py
-?? tests/test_execution_simulator.py
-?? tests/test_portfolio.py
+M reviews/latest/context-pack.md
+ M src/cbot/cli.py
+ M src/cbot/engine/backtest.py
+ M src/cbot/research/compare.py
+ M src/cbot/research/metrics.py
+ M src/cbot/research/reporter.py
+ M src/cbot/research/sensitivity.py
+ M src/cbot/research/verdicts.py
+ M tests/test_backtest_determinism.py
+ M tests/test_cli.py
+?? tests/test_compare_sensitivity.py
+?? tests/test_metrics_verdicts.py
 ```
 
 ## Git Diff
 
 ```diff
-diff --git a/src/cbot/engine/backtest.py b/src/cbot/engine/backtest.py
-index 4057a16..14d8780 100644
---- a/src/cbot/engine/backtest.py
-+++ b/src/cbot/engine/backtest.py
-@@ -8,8 +8,10 @@ from typing import Any
+diff --git a/reviews/latest/context-pack.md b/reviews/latest/context-pack.md
+index 386894e..323fbec 100644
+--- a/reviews/latest/context-pack.md
++++ b/reviews/latest/context-pack.md
+@@ -1,368 +1,330 @@
+ # Context Pack
  
- from cbot.config import RunConfig
+-Generated: 2026-05-02T18:41:09
++Generated: 2026-05-02T18:43:53
+ Repo: `C:\Users\User\Documents\crypto-bot-ccg2`
+ 
+ ## Current Task
+ 
+-Slice 6 complete: execution and portfolio simulation verified
++Slice 7 complete: metrics verdicts and reports verified
+ 
+ ## Git Status
+ 
+ ```text
+ M src/cbot/engine/backtest.py
+- M src/cbot/engine/execution.py
+- M src/cbot/engine/portfolio.py
+- M src/cbot/types.py
+-?? tests/test_execution_simulator.py
+-?? tests/test_portfolio.py
++ M src/cbot/research/metrics.py
++ M src/cbot/research/reporter.py
++ M src/cbot/research/verdicts.py
++ M tests/test_backtest_determinism.py
++?? tests/test_metrics_verdicts.py
+ ```
+ 
+ ## Git Diff
+ 
+ ```diff
+ diff --git a/src/cbot/engine/backtest.py b/src/cbot/engine/backtest.py
+-index 4057a16..14d8780 100644
++index 14d8780..c00ba5c 100644
+ --- a/src/cbot/engine/backtest.py
+ +++ b/src/cbot/engine/backtest.py
+-@@ -8,8 +8,10 @@ from typing import Any
+- 
+- from cbot.config import RunConfig
++@@ -10,6 +10,9 @@ from cbot.config import RunConfig
+  from cbot.engine.events import JsonlEventWriter, RunDirectory, create_run_directory, write_json
+-+from cbot.engine.execution import ExecutionSettings, ExecutionSimulator
+-+from cbot.engine.portfolio import Portfolio
++ from cbot.engine.execution import ExecutionSettings, ExecutionSimulator
++ from cbot.engine.portfolio import Portfolio
+++from cbot.research.metrics import calculate_metrics
+++from cbot.research.reporter import ResearchReport, write_report
+++from cbot.research.verdicts import choose_verdict
+  from cbot.strategies.protocol import Strategy
+--from cbot.types import Candle, SignalAction
+-+from cbot.types import Candle, Fill, SignalAction
+- 
+- 
+- @dataclass(frozen=True)
+-@@ -17,6 +19,7 @@ class BacktestResult:
+-     run_id: str
+-     run_dir: Path
+-     signals_seen: int
+-+    fills_seen: int
+- 
+- 
+- def run_backtest(
+-@@ -46,13 +49,16 @@ def run_backtest(
++ from cbot.types import Candle, Fill, SignalAction
+  
++@@ -50,6 +53,7 @@ def run_backtest(
+      writer.write("run.started", run_dir.run_id, config.to_event_payload())
+      signals_seen = 0
+-+    fills_seen = 0
++     fills_seen = 0
+++    total_fees = 0.0
+      history: list[Candle] = []
+--    portfolio_view: dict[str, Any] = {
+--        "has_position": False,
+--        "cash": config.initial_cash,
+--        "base_asset": config.base_asset,
+--        "quote_asset": config.quote_asset,
+--    }
+-+    portfolio = Portfolio(
+-+        cash=config.initial_cash,
+-+        base_asset=config.base_asset,
+-+        quote_asset=config.quote_asset,
++     portfolio = Portfolio(
++         cash=config.initial_cash,
++@@ -88,6 +92,7 @@ def run_backtest(
++                 fill = execution.simulate_fill(intent, candle, portfolio)
++                 if fill:
++                     portfolio.apply_fill(fill)
+++                    total_fees += fill.fee
++                     fills_seen += 1
++                     writer.write("simulation.fill", run_dir.run_id, fill_payload(fill))
++                     writer.write(
++@@ -96,43 +101,47 @@ def run_backtest(
++                         portfolio.snapshot(candle.close),
++                     )
++ 
+++    final_price = history[-1].close if history else config.initial_cash
+++    first_price = history[0].close if history else None
+++    metrics = calculate_metrics(
+++        portfolio=portfolio,
+++        initial_cash=config.initial_cash,
+++        final_price=final_price,
+++        first_price=first_price,
+++        total_fees=total_fees,
+ +    )
+-+    execution = ExecutionSimulator(
+-+        ExecutionSettings(fee_bps=config.fee_bps, slippage_bps=config.slippage_bps)
+++    verdict, warnings = choose_verdict(
+++        metrics=metrics,
+++        max_drawdown_pct=config.max_drawdown_pct,
+++        min_trade_count=config.min_trade_count,
+++        sample_label=config.sample_label,
+ +    )
+- 
+-     for candle in candles:
+-         if candle.symbol != config.symbol or candle.timeframe != config.timeframe:
+-@@ -61,7 +67,7 @@ def run_backtest(
+-             continue
+- 
+-         history.append(candle)
+--        signal = strategy.on_candle(tuple(history), portfolio_view, config.strategy_parameters)
+-+        signal = strategy.on_candle(tuple(history), portfolio.view(), config.strategy_parameters)
+-         if signal.action != SignalAction.HOLD:
+-             signals_seen += 1
+-             writer.write(
+-@@ -77,10 +83,18 @@ def run_backtest(
+-                     "features": dict(signal.features),
+-                 },
+-             )
+--            if signal.action == SignalAction.BUY:
+--                portfolio_view["has_position"] = True
+--            elif signal.action in {SignalAction.SELL, SignalAction.EXIT}:
+--                portfolio_view["has_position"] = False
+-+            intent = execution.intent_from_signal(candle.symbol, signal)
+-+            if intent:
+-+                fill = execution.simulate_fill(intent, candle, portfolio)
+-+                if fill:
+-+                    portfolio.apply_fill(fill)
+-+                    fills_seen += 1
+-+                    writer.write("simulation.fill", run_dir.run_id, fill_payload(fill))
+-+                    writer.write(
+-+                        "portfolio.snapshot",
+-+                        run_dir.run_id,
+-+                        portfolio.snapshot(candle.close),
+-+                    )
+- 
+++    warnings.append("BASIC_EXECUTION_SIMULATION")
+++
+      writer.write(
+          "run.completed",
+-@@ -90,8 +104,11 @@ def run_backtest(
+-             "verdict": "INSUFFICIENT_DATA",
++         run_dir.run_id,
++         {
++             "status": "COMPLETED",
++-            "verdict": "INSUFFICIENT_DATA",
++-            "metrics": {
++-                "signals_seen": signals_seen,
++-                "fills_seen": fills_seen,
++-                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
++-                "max_drawdown_pct": portfolio.max_drawdown_pct,
++-            },
++-            "warnings": ["Slice 6 simulation is basic; metrics/verdict rules are implemented in later slices."],
++-        },
++-    )
++-    write_json(
++-        run_dir.report_path,
++-        {
++-            "run_id": run_dir.run_id,
++-            "status": "COMPLETED",
++-            "verdict": "INSUFFICIENT_DATA",
+++            "verdict": verdict.value,
+              "metrics": {
+++                **metrics.to_dict(),
+                  "signals_seen": signals_seen,
+-+                "fills_seen": fills_seen,
+-+                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
+-+                "max_drawdown_pct": portfolio.max_drawdown_pct,
++                 "fills_seen": fills_seen,
++-                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
++-                "max_drawdown_pct": portfolio.max_drawdown_pct,
+              },
+--            "warnings": ["Slice 5 emits signals only; execution simulation is not implemented yet."],
+-+            "warnings": ["Slice 6 simulation is basic; metrics/verdict rules are implemented in later slices."],
+++            "warnings": warnings,
+          },
+      )
+-     write_json(
+-@@ -100,11 +117,39 @@ def run_backtest(
+-             "run_id": run_dir.run_id,
+-             "status": "COMPLETED",
+-             "verdict": "INSUFFICIENT_DATA",
+--            "metrics": {"signals_seen": signals_seen},
+-+            "metrics": {
+-+                "signals_seen": signals_seen,
+-+                "fills_seen": fills_seen,
+-+                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
+-+                "max_drawdown_pct": portfolio.max_drawdown_pct,
+-+            },
+-         },
++-    run_dir.summary_path.write_text(
++-        (
++-            "# Backtest Summary\n\n"
++-            f"Run: `{run_dir.run_id}`\n\n"
++-            f"Signals seen: {signals_seen}\n\n"
++-            f"Fills seen: {fills_seen}\n"
+++    write_report(
+++        ResearchReport(
+++            run_id=run_dir.run_id,
+++            status="COMPLETED",
+++            verdict=verdict,
+++            metrics=metrics,
+++            warnings=warnings,
++         ),
++-        encoding="utf-8",
+++        run_dir.report_path,
+++        run_dir.summary_path,
+      )
+-     run_dir.summary_path.write_text(
+--        f"# Backtest Summary\n\nRun: `{run_dir.run_id}`\n\nSignals seen: {signals_seen}\n",
+-+        (
+-+            "# Backtest Summary\n\n"
+-+            f"Run: `{run_dir.run_id}`\n\n"
+-+            f"Signals seen: {signals_seen}\n\n"
+-+            f"Fills seen: {fills_seen}\n"
+-+        ),
+-         encoding="utf-8",
+-     )
+--    return BacktestResult(run_id=run_dir.run_id, run_dir=run_dir.path, signals_seen=signals_seen)
+-+    return BacktestResult(
+-+        run_id=run_dir.run_id,
+-+        run_dir=run_dir.path,
+-+        signals_seen=signals_seen,
+-+        fills_seen=fills_seen,
+-+    )
+-+
+-+
+-+def fill_payload(fill: Fill) -> dict[str, Any]:
+-+    return {
+-+        "symbol": fill.symbol,
+-+        "side": "SELL" if fill.side == SignalAction.EXIT else fill.side.value,
+-+        "quantity": fill.quantity,
+-+        "price": fill.price,
+-+        "fee": fill.fee,
+-+        "fee_asset": fill.fee_asset,
+-+        "slippage_bps": fill.slippage_bps,
+-+        "order_id": fill.order_id,
+-+    }
+-diff --git a/src/cbot/engine/execution.py b/src/cbot/engine/execution.py
+-index 0264340..cfa4252 100644
+---- a/src/cbot/engine/execution.py
+-+++ b/src/cbot/engine/execution.py
+-@@ -1,2 +1,84 @@
+--"""Execution simulation will be implemented in Slice 6."""
+-+"""Simple spot execution simulation."""
++     return BacktestResult(
++         run_id=run_dir.run_id,
++diff --git a/src/cbot/research/metrics.py b/src/cbot/research/metrics.py
++index 50f758b..8a46f84 100644
++--- a/src/cbot/research/metrics.py
+++++ b/src/cbot/research/metrics.py
++@@ -1,2 +1,62 @@
++-"""Research metrics will be implemented in Slice 7."""
+++"""Research metric calculation."""
+  
+ +from __future__ import annotations
+ +
+ +from dataclasses import dataclass
+ +
+ +from cbot.engine.portfolio import Portfolio
+-+from cbot.types import Candle, Fill, OrderIntent, Signal, SignalAction
+ +
+ +
+ +@dataclass(frozen=True)
+-+class ExecutionSettings:
+-+    fee_bps: float
+-+    slippage_bps: float
+-+    min_notional: float = 10.0
+++class MetricSummary:
+++    initial_cash: float
+++    final_equity: float
+++    total_return_pct: float
+++    max_drawdown_pct: float
+++    trade_count: int
+++    fee_drag: float
+++    buy_and_hold_return_pct: float | None = None
+++    cash_return_pct: float = 0.0
+ +
+++    def to_dict(self) -> dict[str, float | int | None]:
+++        return {
+++            "initial_cash": self.initial_cash,
+++            "final_equity": self.final_equity,
+++            "total_return_pct": self.total_return_pct,
+++            "max_drawdown_pct": self.max_drawdown_pct,
+++            "trade_count": self.trade_count,
+++            "fee_drag": self.fee_drag,
+++            "buy_and_hold_return_pct": self.buy_and_hold_return_pct,
+++            "cash_return_pct": self.cash_return_pct,
+++        }
+ +
+-+class ExecutionSimulator:
+-+    def __init__(self, settings: ExecutionSettings) -> None:
+-+        self.settings = settings
+-+        self._order_sequence = 0
+ +
+-+    def intent_from_signal(self, symbol: str, signal: Signal) -> OrderIntent | None:
+-+        if signal.action == SignalAction.HOLD:
+-+            return None
+-+        target_fraction = signal.target_fraction
+-+        if target_fraction is None:
+-+            target_fraction = 1.0 if signal.action == SignalAction.BUY else 0.0
+-+        return OrderIntent(
+-+            symbol=symbol,
+-+            side=signal.action,
+-+            target_fraction=target_fraction,
+-+            reason=signal.reason,
+-+        )
+++def calculate_metrics(
+++    portfolio: Portfolio,
+++    initial_cash: float,
+++    final_price: float,
+++    first_price: float | None = None,
+++    total_fees: float = 0.0,
+++) -> MetricSummary:
+++    final_equity = portfolio.equity(final_price)
+++    total_return_pct = percent_return(initial_cash, final_equity)
+++    buy_and_hold_return_pct = None
+++    if first_price and first_price > 0:
+++        buy_and_hold_return_pct = percent_return(first_price, final_price)
+++    return MetricSummary(
+++        initial_cash=round(initial_cash, 10),
+++        final_equity=round(final_equity, 10),
+++        total_return_pct=round(total_return_pct, 10),
+++        max_drawdown_pct=round(portfolio.max_drawdown_pct, 10),
+++        trade_count=portfolio.fills_count,
+++        fee_drag=round(total_fees, 10),
+++        buy_and_hold_return_pct=None
+++        if buy_and_hold_return_pct is None
+++        else round(buy_and_hold_return_pct, 10),
+++    )
+ +
+-+    def simulate_fill(self, intent: OrderIntent, candle: Candle, portfolio: Portfolio) -> Fill | None:
+-+        self._order_sequence += 1
+-+        order_id = f"sim-{self._order_sequence:06d}"
+ +
+-+        if intent.side == SignalAction.BUY:
+-+            price = apply_slippage(candle.close, self.settings.slippage_bps, buy=True)
+-+            target_notional = portfolio.equity(candle.close) * intent.target_fraction
+-+            spendable = min(portfolio.cash, target_notional)
+-+            if spendable < self.settings.min_notional:
+-+                return None
+-+            fee_rate = self.settings.fee_bps / 10_000
+-+            quantity = spendable / (price * (1 + fee_rate))
+-+            fee = quantity * price * fee_rate
+-+            return Fill(
+-+                symbol=intent.symbol,
+-+                side=SignalAction.BUY,
+-+                quantity=quantity,
+-+                price=price,
+-+                fee=fee,
+-+                fee_asset=portfolio.quote_asset,
+-+                slippage_bps=self.settings.slippage_bps,
+-+                order_id=order_id,
+-+            )
+++def percent_return(start: float, end: float) -> float:
+++    if start == 0:
+++        return 0.0
+++    return (end - start) / start * 100
++diff --git a/src/cbot/research/reporter.py b/src/cbot/research/reporter.py
++index d6fcf43..4b1a67b 100644
++--- a/src/cbot/research/reporter.py
+++++ b/src/cbot/research/reporter.py
++@@ -1,2 +1,52 @@
++-"""Research reports will be implemented in Slice 7."""
+++"""Report writing for completed research runs."""
++ 
+++from __future__ import annotations
+ +
+-+        if intent.side in {SignalAction.SELL, SignalAction.EXIT}:
+-+            quantity = portfolio.position_qty * (1 - intent.target_fraction)
+-+            if quantity <= 0:
+-+                return None
+-+            price = apply_slippage(candle.close, self.settings.slippage_bps, buy=False)
+-+            if quantity * price < self.settings.min_notional:
+-+                return None
+-+            fee = quantity * price * (self.settings.fee_bps / 10_000)
+-+            return Fill(
+-+                symbol=intent.symbol,
+-+                side=intent.side,
+-+                quantity=quantity,
+-+                price=price,
+-+                fee=fee,
+-+                fee_asset=portfolio.quote_asset,
+-+                slippage_bps=self.settings.slippage_bps,
+-+                order_id=order_id,
+-+            )
+++from dataclasses import dataclass
+++from pathlib import Path
+ +
+-+        return None
+++from cbot.engine.events import write_json
+++from cbot.research.metrics import MetricSummary
+++from cbot.research.verdicts import Verdict
+ +
+ +
+-+def apply_slippage(price: float, slippage_bps: float, buy: bool) -> float:
+-+    adjustment = price * slippage_bps / 10_000
+-+    return price + adjustment if buy else price - adjustment
+-diff --git a/src/cbot/engine/portfolio.py b/src/cbot/engine/portfolio.py
+-index 946ba03..032c10f 100644
+---- a/src/cbot/engine/portfolio.py
+-+++ b/src/cbot/engine/portfolio.py
+-@@ -1,2 +1,73 @@
+--"""Simulated portfolio accounting will be implemented in Slice 6."""
+-+"""Simulated spot portfolio accounting."""
+- 
+-+from __future__ import annotations
+++@dataclass(frozen=True)
+++class ResearchReport:
+++    run_id: str
+++    status: str
+++    verdict: Verdict
+++    metrics: MetricSummary
+++    warnings: list[str]
+ +
+-+from dataclasses import dataclass, field
+++    def to_dict(self) -> dict[str, object]:
+++        return {
+++            "run_id": self.run_id,
+++            "status": self.status,
+++            "verdict": self.verdict.value,
+++            "metrics": self.metrics.to_dict(),
+++            "warnings": self.warnings,
+++        }
+ +
+-+from cbot.types import Fill, SignalAction
+ +
+++def write_report(report: ResearchReport, report_path: Path, summary_path: Path) -> None:
+++    write_json(report_path, report.to_dict())
+++    summary_path.write_text(render_summary(report), encoding="utf-8")
+ +
+-+@dataclass
+-+class Portfolio:
+-+    cash: float
+-+    base_asset: str
+-+    quote_asset: str
+-+    position_qty: float = 0.0
+-+    realized_pnl: float = 0.0
+-+    peak_equity: float = field(init=False)
+-+    max_drawdown_pct: float = 0.0
+-+    fills_count: int = 0
+ +
+-+    def __post_init__(self) -> None:
+-+        self.peak_equity = self.cash
+++def render_summary(report: ResearchReport) -> str:
+++    metrics = report.metrics
+++    warnings = "\n".join(f"- {warning}" for warning in report.warnings) or "- none"
+++    return (
+++        "# Backtest Summary\n\n"
+++        f"Run: `{report.run_id}`\n\n"
+++        f"Verdict: `{report.verdict.value}`\n\n"
+++        "## Metrics\n\n"
+++        f"- Final equity: {metrics.final_equity:.4f}\n"
+++        f"- Total return: {metrics.total_return_pct:.4f}%\n"
+++        f"- Max drawdown: {metrics.max_drawdown_pct:.4f}%\n"
+++        f"- Trade count: {metrics.trade_count}\n"
+++        f"- Fee drag: {metrics.fee_drag:.4f}\n"
+++        f"- Buy and hold return: {metrics.buy_and_hold_return_pct}\n\n"
+++        "## Warnings\n\n"
+++        f"{warnings}\n"
+++    )
++diff --git a/src/cbot/research/verdicts.py b/src/cbot/research/verdicts.py
++index ae16bac..657fb0a 100644
++--- a/src/cbot/research/verdicts.py
+++++ b/src/cbot/research/verdicts.py
++@@ -1,2 +1,48 @@
++-"""Research verdict rules will be implemented in Slice 7."""
+++"""Research verdict rules."""
++ 
+++from __future__ import annotations
+ +
+-+    @property
+-+    def has_position(self) -> bool:
+-+        return self.position_qty > 0
+++from enum import StrEnum
+ +
+-+    def view(self) -> dict[str, object]:
+-+        return {
+-+            "has_position": self.has_position,
+-+            "cash": self.cash,
+-+            "position_qty": self.position_qty,
+-+            "base_asset": self.base_asset,
+-+            "quote_asset": self.quote_asset,
+-+        }
+++from cbot.research.metrics import MetricSummary
+ +
+-+    def equity(self, mark_price: float) -> float:
+-+        return self.cash + self.position_qty * mark_price
+ +
+-+    def apply_fill(self, fill: Fill) -> None:
+-+        if fill.side == SignalAction.BUY:
+-+            total_cost = fill.notional + fill.fee
+-+            if total_cost > self.cash + 1e-9:
+-+                raise ValueError("Fill cost exceeds available cash.")
+-+            self.cash -= total_cost
+-+            self.position_qty += fill.quantity
+-+        elif fill.side in {SignalAction.SELL, SignalAction.EXIT}:
+-+            if fill.quantity > self.position_qty + 1e-9:
+-+                raise ValueError("Fill quantity exceeds current position.")
+-+            self.cash += fill.notional - fill.fee
+-+            self.position_qty -= fill.quantity
+-+        else:
+-+            raise ValueError(f"Unsupported fill side: {fill.side}")
+-+        self.fills_count += 1
+++class Verdict(StrEnum):
+++    REJECT = "REJECT"
+++    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+++    CONDITIONAL = "CONDITIONAL"
+++    CANDIDATE = "CANDIDATE"
+ +
+-+    def snapshot(self, mark_price: float) -> dict[str, object]:
+-+        equity = self.equity(mark_price)
+-+        if equity > self.peak_equity:
+-+            self.peak_equity = equity
+-+        drawdown_pct = 0.0
+-+        if self.peak_equity:
+-+            drawdown_pct = max(0.0, (self.peak_equity - equity) / self.peak_equity * 100)
+-+        self.max_drawdown_pct = max(self.max_drawdown_pct, drawdown_pct)
+-+        return {
+-+            "cash": round(self.cash, 10),
+-+            "equity": round(equity, 10),
+-+            "drawdown_pct": round(drawdown_pct, 10),
+-+            "positions": {
+-+                self.base_asset: round(self.position_qty, 10),
+-+            },
+-+            "realized_pnl": round(self.realized_pnl, 10),
+-+            "unrealized_pnl": round(self.position_qty * mark_price, 10),
+-+        }
+-diff --git a/src/cbot/types.py b/src/cbot/types.py
+-index b0a2fd4..e4ba0bf 100644
+---- a/src/cbot/types.py
+-+++ b/src/cbot/types.py
+-@@ -81,3 +81,27 @@ class Signal:
+-     @classmethod
+-     def hold(cls, reason: str = "no signal") -> "Signal":
+-         return cls(action=SignalAction.HOLD, reason=reason)
+ +
+++def choose_verdict(
+++    metrics: MetricSummary,
+++    max_drawdown_pct: float,
+++    min_trade_count: int,
+++    sample_label: str,
+++) -> tuple[Verdict, list[str]]:
+++    warnings: list[str] = []
+ +
+-+@dataclass(frozen=True)
+-+class OrderIntent:
+-+    symbol: str
+-+    side: SignalAction
+-+    target_fraction: float
+-+    reason: str
+++    if metrics.max_drawdown_pct >= max_drawdown_pct:
+++        warnings.append("DRAWDOWN_BREACHED")
+++        return Verdict.REJECT, warnings
+ +
+++    if metrics.trade_count < min_trade_count:
+++        warnings.append("TRADE_COUNT_BELOW_FLOOR")
+++        return Verdict.INSUFFICIENT_DATA, warnings
+ +
+-+@dataclass(frozen=True)
+-+class Fill:
+-+    symbol: str
+-+    side: SignalAction
+-+    quantity: float
+-+    price: float
+-+    fee: float
+-+    fee_asset: str
+-+    slippage_bps: float
+-+    order_id: str
+++    if sample_label != "OUT_OF_SAMPLE":
+++        warnings.append("NOT_OUT_OF_SAMPLE")
+++        return Verdict.CONDITIONAL, warnings
+++
+++    if metrics.total_return_pct <= metrics.cash_return_pct:
+++        warnings.append("UNDERPERFORMS_CASH")
+++        return Verdict.REJECT, warnings
+++
+++    if (
+++        metrics.buy_and_hold_return_pct is not None
+++        and metrics.total_return_pct < metrics.buy_and_hold_return_pct
+++    ):
+++        warnings.append("UNDERPERFORMS_BUY_AND_HOLD")
+++        return Verdict.CONDITIONAL, warnings
+ +
+-+    @property
+-+    def notional(self) -> float:
+-+        return self.quantity * self.price
+++    return Verdict.CANDIDATE, warnings
++diff --git a/tests/test_backtest_determinism.py b/tests/test_backtest_determinism.py
++index 47232d6..a067907 100644
++--- a/tests/test_backtest_determinism.py
+++++ b/tests/test_backtest_determinism.py
++@@ -57,6 +57,9 @@ def test_backtest_writes_run_artifacts(tmp_path):
++     assert (result.run_dir / "events.jsonl").exists()
++     assert (result.run_dir / "report.json").exists()
++     assert (result.run_dir / "summary.md").exists()
+++    report = json.loads((result.run_dir / "report.json").read_text(encoding="utf-8"))
+++    assert report["verdict"] == "INSUFFICIENT_DATA"
+++    assert "TRADE_COUNT_BELOW_FLOOR" in report["warnings"]
++ 
++ 
++ def test_backtest_rejects_strategy_mismatch(tmp_path):
+ 
+ [stderr]
+ warning: in the working copy of 'src/cbot/engine/backtest.py', LF will be replaced by CRLF the next time Git touches it
+-warning: in the working copy of 'src/cbot/engine/execution.py', LF will be replaced by CRLF the next time Git touches it
+-warning: in the working copy of 'src/cbot/engine/portfolio.py', LF will be replaced by CRLF the next time Git touches it
+-warning: in the working copy of 'src/cbot/types.py', LF will be replaced by CRLF the next time Git touches it
++warning: in the working copy of 'src/cbot/research/metrics.py', LF will be replaced by CRLF the next time Git touches it
++warning: in the working copy of 'src/cbot/research/reporter.py', LF will be replaced by CRLF the next time Git touches it
++warning: in the working copy of 'src/cbot/research/verdicts.py', LF will be replaced by CRLF the next time Git touches it
++warning: in the working copy of 'tests/test_backtest_determinism.py', LF will be replaced by CRLF the next time Git touches it
+ ```
+ 
+ ## File Tree
+@@ -435,6 +397,7 @@ warning: in the working copy of 'src/cbot/types.py', LF will be replaced by CRLF
+ - tests\test_market_data_binance.py
+ - tests\test_market_data_store.py
+ - tests\test_market_data_validation.py
++- tests\test_metrics_verdicts.py
+ - tests\test_package.py
+ - tests\test_portfolio.py
+ - tests\test_strategies.py
+@@ -3442,7 +3405,7 @@ The generated file goes to `reviews/latest/context-pack.md`.
+ ### reviews\latest\context-pack.md
+ 
+ ```text
+-[Skipped: file is 180705 bytes, above 24000 byte limit]
++[Skipped: file is 187051 bytes, above 24000 byte limit]
+ ```
+ 
+ ### src\cbot\__init__.py
+@@ -3682,6 +3645,9 @@ from cbot.config import RunConfig
  from cbot.engine.events import JsonlEventWriter, RunDirectory, create_run_directory, write_json
-+from cbot.engine.execution import ExecutionSettings, ExecutionSimulator
-+from cbot.engine.portfolio import Portfolio
+ from cbot.engine.execution import ExecutionSettings, ExecutionSimulator
+ from cbot.engine.portfolio import Portfolio
++from cbot.research.metrics import calculate_metrics
++from cbot.research.reporter import ResearchReport, write_report
++from cbot.research.verdicts import choose_verdict
  from cbot.strategies.protocol import Strategy
--from cbot.types import Candle, SignalAction
-+from cbot.types import Candle, Fill, SignalAction
+ from cbot.types import Candle, Fill, SignalAction
  
- 
- @dataclass(frozen=True)
-@@ -17,6 +19,7 @@ class BacktestResult:
-     run_id: str
-     run_dir: Path
-     signals_seen: int
-+    fills_seen: int
- 
- 
- def run_backtest(
-@@ -46,13 +49,16 @@ def run_backtest(
- 
+@@ -3722,6 +3688,7 @@ def run_backtest(
      writer.write("run.started", run_dir.run_id, config.to_event_payload())
      signals_seen = 0
-+    fills_seen = 0
+     fills_seen = 0
++    total_fees = 0.0
      history: list[Candle] = []
--    portfolio_view: dict[str, Any] = {
--        "has_position": False,
--        "cash": config.initial_cash,
--        "base_asset": config.base_asset,
--        "quote_asset": config.quote_asset,
--    }
-+    portfolio = Portfolio(
-+        cash=config.initial_cash,
-+        base_asset=config.base_asset,
-+        quote_asset=config.quote_asset,
+     portfolio = Portfolio(
+         cash=config.initial_cash,
+@@ -3760,6 +3727,7 @@ def run_backtest(
+                 fill = execution.simulate_fill(intent, candle, portfolio)
+                 if fill:
+                     portfolio.apply_fill(fill)
++                    total_fees += fill.fee
+                     fills_seen += 1
+                     writer.write("simulation.fill", run_dir.run_id, fill_payload(fill))
+                     writer.write(
+@@ -3768,43 +3736,47 @@ def run_backtest(
+                         portfolio.snapshot(candle.close),
+                     )
+ 
++    final_price = history[-1].close if history else config.initial_cash
++    first_price = history[0].close if history else None
++    metrics = calculate_metrics(
++        portfolio=portfolio,
++        initial_cash=config.initial_cash,
++        final_price=final_price,
++        first_price=first_price,
++        total_fees=total_fees,
 +    )
-+    execution = ExecutionSimulator(
-+        ExecutionSettings(fee_bps=config.fee_bps, slippage_bps=config.slippage_bps)
++    verdict, warnings = choose_verdict(
++        metrics=metrics,
++        max_drawdown_pct=config.max_drawdown_pct,
++        min_trade_count=config.min_trade_count,
++        sample_label=config.sample_label,
 +    )
- 
-     for candle in candles:
-         if candle.symbol != config.symbol or candle.timeframe != config.timeframe:
-@@ -61,7 +67,7 @@ def run_backtest(
-             continue
- 
-         history.append(candle)
--        signal = strategy.on_candle(tuple(history), portfolio_view, config.strategy_parameters)
-+        signal = strategy.on_candle(tuple(history), portfolio.view(), config.strategy_parameters)
-         if signal.action != SignalAction.HOLD:
-             signals_seen += 1
-             writer.write(
-@@ -77,10 +83,18 @@ def run_backtest(
-                     "features": dict(signal.features),
-                 },
-             )
--            if signal.action == SignalAction.BUY:
--                portfolio_view["has_position"] = True
--            elif signal.action in {SignalAction.SELL, SignalAction.EXIT}:
--                portfolio_view["has_position"] = False
-+            intent = execution.intent_from_signal(candle.symbol, signal)
-+            if intent:
-+                fill = execution.simulate_fill(intent, candle, portfolio)
-+                if fill:
-+                    portfolio.apply_fill(fill)
-+                    fills_seen += 1
-+                    writer.write("simulation.fill", run_dir.run_id, fill_payload(fill))
-+                    writer.write(
-+                        "portfolio.snapshot",
-+                        run_dir.run_id,
-+                        portfolio.snapshot(candle.close),
-+                    )
- 
++    warnings.append("BASIC_EXECUTION_SIMULATION")
++
      writer.write(
          "run.completed",
-@@ -90,8 +104,11 @@ def run_backtest(
-             "verdict": "INSUFFICIENT_DATA",
-             "metrics": {
-                 "signals_seen": signals_seen,
-+                "fills_seen": fills_seen,
-+                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
-+                "max_drawdown_pct": portfolio.max_drawdown_pct,
-             },
--            "warnings": ["Slice 5 emits signals only; execution simulation is not implemented yet."],
-+            "warnings": ["Slice 6 simulation is basic; metrics/verdict rules are implemented in later slices."],
-         },
-     )
-     write_json(
-@@ -100,11 +117,39 @@ def run_backtest(
-             "run_id": run_dir.run_id,
+         run_dir.run_id,
+         {
              "status": "COMPLETED",
-             "verdict": "INSUFFICIENT_DATA",
--            "metrics": {"signals_seen": signals_seen},
-+            "metrics": {
-+                "signals_seen": signals_seen,
-+                "fills_seen": fills_seen,
-+                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
-+                "max_drawdown_pct": portfolio.max_drawdown_pct,
-+            },
+-            "verdict": "INSUFFICIENT_DATA",
+-            "metrics": {
+-                "signals_seen": signals_seen,
+-                "fills_seen": fills_seen,
+-                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
+-                "max_drawdown_pct": portfolio.max_drawdown_pct,
+-            },
+-            "warnings": ["Slice 6 simulation is basic; metrics/verdict rules are implemented in later slices."],
+-        },
+-    )
+-    write_json(
+-        run_dir.report_path,
+-        {
+-            "run_id": run_dir.run_id,
+-            "status": "COMPLETED",
+-            "verdict": "INSUFFICIENT_DATA",
++            "verdict": verdict.value,
+             "metrics": {
++                **metrics.to_dict(),
+                 "signals_seen": signals_seen,
+                 "fills_seen": fills_seen,
+-                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
+-                "max_drawdown_pct": portfolio.max_drawdown_pct,
+             },
++            "warnings": warnings,
          },
      )
-     run_dir.summary_path.write_text(
--        f"# Backtest Summary\n\nRun: `{run_dir.run_id}`\n\nSignals seen: {signals_seen}\n",
-+        (
-+            "# Backtest Summary\n\n"
-+            f"Run: `{run_dir.run_id}`\n\n"
-+            f"Signals seen: {signals_seen}\n\n"
-+            f"Fills seen: {fills_seen}\n"
-+        ),
-         encoding="utf-8",
+-    run_dir.summary_path.write_text(
+-        (
+-            "# Backtest Summary\n\n"
+-            f"Run: `{run_dir.run_id}`\n\n"
+-            f"Signals seen: {signals_seen}\n\n"
+-            f"Fills seen: {fills_seen}\n"
++    write_report(
++        ResearchReport(
++            run_id=run_dir.run_id,
++            status="COMPLETED",
++            verdict=verdict,
++            metrics=metrics,
++            warnings=warnings,
+         ),
+-        encoding="utf-8",
++        run_dir.report_path,
++        run_dir.summary_path,
      )
--    return BacktestResult(run_id=run_dir.run_id, run_dir=run_dir.path, signals_seen=signals_seen)
-+    return BacktestResult(
-+        run_id=run_dir.run_id,
-+        run_dir=run_dir.path,
-+        signals_seen=signals_seen,
-+        fills_seen=fills_seen,
-+    )
-+
-+
-+def fill_payload(fill: Fill) -> dict[str, Any]:
-+    return {
-+        "symbol": fill.symbol,
-+        "side": "SELL" if fill.side == SignalAction.EXIT else fill.side.value,
-+        "quantity": fill.quantity,
-+        "price": fill.price,
-+        "fee": fill.fee,
-+        "fee_asset": fill.fee_asset,
-+        "slippage_bps": fill.slippage_bps,
-+        "order_id": fill.order_id,
-+    }
-diff --git a/src/cbot/engine/execution.py b/src/cbot/engine/execution.py
-index 0264340..cfa4252 100644
---- a/src/cbot/engine/execution.py
-+++ b/src/cbot/engine/execution.py
-@@ -1,2 +1,84 @@
--"""Execution simulation will be implemented in Slice 6."""
-+"""Simple spot execution simulation."""
+     return BacktestResult(
+         run_id=run_dir.run_id,
+@@ -4393,17 +4365,127 @@ def validate_candles(
+ ### src\cbot\research\metrics.py
+ 
+ ```text
+-"""Research metrics will be implemented in Slice 7."""
++"""Research metric calculation."""
  
 +from __future__ import annotations
 +
 +from dataclasses import dataclass
 +
 +from cbot.engine.portfolio import Portfolio
-+from cbot.types import Candle, Fill, OrderIntent, Signal, SignalAction
 +
 +
 +@dataclass(frozen=True)
-+class ExecutionSettings:
-+    fee_bps: float
-+    slippage_bps: float
-+    min_notional: float = 10.0
++class MetricSummary:
++    initial_cash: float
++    final_equity: float
++    total_return_pct: float
++    max_drawdown_pct: float
++    trade_count: int
++    fee_drag: float
++    buy_and_hold_return_pct: float | None = None
++    cash_return_pct: float = 0.0
++
++    def to_dict(self) -> dict[str, float | int | None]:
++        return {
++            "initial_cash": self.initial_cash,
++            "final_equity": self.final_equity,
++            "total_return_pct": self.total_return_pct,
++            "max_drawdown_pct": self.max_drawdown_pct,
++            "trade_count": self.trade_count,
++            "fee_drag": self.fee_drag,
++            "buy_and_hold_return_pct": self.buy_and_hold_return_pct,
++            "cash_return_pct": self.cash_return_pct,
++        }
 +
 +
-+class ExecutionSimulator:
-+    def __init__(self, settings: ExecutionSettings) -> None:
-+        self.settings = settings
-+        self._order_sequence = 0
-+
-+    def intent_from_signal(self, symbol: str, signal: Signal) -> OrderIntent | None:
-+        if signal.action == SignalAction.HOLD:
-+            return None
-+        target_fraction = signal.target_fraction
-+        if target_fraction is None:
-+            target_fraction = 1.0 if signal.action == SignalAction.BUY else 0.0
-+        return OrderIntent(
-+            symbol=symbol,
-+            side=signal.action,
-+            target_fraction=target_fraction,
-+            reason=signal.reason,
-+        )
-+
-+    def simulate_fill(self, intent: OrderIntent, candle: Candle, portfolio: Portfolio) -> Fill | None:
-+        self._order_sequence += 1
-+        order_id = f"sim-{self._order_sequence:06d}"
-+
-+        if intent.side == SignalAction.BUY:
-+            price = apply_slippage(candle.close, self.settings.slippage_bps, buy=True)
-+            target_notional = portfolio.equity(candle.close) * intent.target_fraction
-+            spendable = min(portfolio.cash, target_notional)
-+            if spendable < self.settings.min_notional:
-+                return None
-+            fee_rate = self.settings.fee_bps / 10_000
-+            quantity = spendable / (price * (1 + fee_rate))
-+            fee = quantity * price * fee_rate
-+            return Fill(
-+                symbol=intent.symbol,
-+                side=SignalAction.BUY,
-+                quantity=quantity,
-+                price=price,
-+                fee=fee,
-+                fee_asset=portfolio.quote_asset,
-+                slippage_bps=self.settings.slippage_bps,
-+                order_id=order_id,
-+            )
-+
-+        if intent.side in {SignalAction.SELL, SignalAction.EXIT}:
-+            quantity = portfolio.position_qty * (1 - intent.target_fraction)
-+            if quantity <= 0:
-+                return None
-+            price = apply_slippage(candle.close, self.settings.slippage_bps, buy=False)
-+            if quantity * price < self.settings.min_notional:
-+                return None
-+            fee = quantity * price * (self.settings.fee_bps / 10_000)
-+            return Fill(
-+                symbol=intent.symbol,
-+                side=intent.side,
-+                quantity=quantity,
-+                price=price,
-+                fee=fee,
-+                fee_asset=portfolio.quote_asset,
-+                slippage_bps=self.settings.slippage_bps,
-+                order_id=order_id,
-+            )
-+
-+        return None
++def calculate_metrics(
++    portfolio: Portfolio,
++    initial_cash: float,
++    final_price: float,
++    first_price: float | None = None,
++    total_fees: float = 0.0,
++) -> MetricSummary:
++    final_equity = portfolio.equity(final_price)
++    total_return_pct = percent_return(initial_cash, final_equity)
++    buy_and_hold_return_pct = None
++    if first_price and first_price > 0:
++        buy_and_hold_return_pct = percent_return(first_price, final_price)
++    return MetricSummary(
++        initial_cash=round(initial_cash, 10),
++        final_equity=round(final_equity, 10),
++        total_return_pct=round(total_return_pct, 10),
++        max_drawdown_pct=round(portfolio.max_drawdown_pct, 10),
++        trade_count=portfolio.fills_count,
++        fee_drag=round(total_fees, 10),
++        buy_and_hold_return_pct=None
++        if buy_and_hold_return_pct is None
++        else round(buy_and_hold_return_pct, 10),
++    )
 +
 +
-+def apply_slippage(price: float, slippage_bps: float, buy: bool) -> float:
-+    adjustment = price * slippage_bps / 10_000
-+    return price + adjustment if buy else price - adjustment
-diff --git a/src/cbot/engine/portfolio.py b/src/cbot/engine/portfolio.py
-index 946ba03..032c10f 100644
---- a/src/cbot/engine/portfolio.py
-+++ b/src/cbot/engine/portfolio.py
-@@ -1,2 +1,73 @@
--"""Simulated portfolio accounting will be implemented in Slice 6."""
-+"""Simulated spot portfolio accounting."""
++def percent_return(start: float, end: float) -> float:
++    if start == 0:
++        return 0.0
++    return (end - start) / start * 100
+ 
+ ```
+ 
+ ### src\cbot\research\reporter.py
+ 
+ ```text
+-"""Research reports will be implemented in Slice 7."""
++"""Report writing for completed research runs."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from pathlib import Path
++
++from cbot.engine.events import write_json
++from cbot.research.metrics import MetricSummary
++from cbot.research.verdicts import Verdict
++
++
++@dataclass(frozen=True)
++class ResearchReport:
++    run_id: str
++    status: str
++    verdict: Verdict
++    metrics: MetricSummary
++    warnings: list[str]
++
++    def to_dict(self) -> dict[str, object]:
++        return {
++            "run_id": self.run_id,
++            "status": self.status,
++            "verdict": self.verdict.value,
++            "metrics": self.metrics.to_dict(),
++            "warnings": self.warnings,
++        }
+ 
+ 
++def write_report(report: ResearchReport, report_path: Path, summary_path: Path) -> None:
++    write_json(report_path, report.to_dict())
++    summary_path.write_text(render_summary(report), encoding="utf-8")
++
++
++def render_summary(report: ResearchReport) -> str:
++    metrics = report.metrics
++    warnings = "\n".join(f"- {warning}" for warning in report.warnings) or "- none"
++    return (
++        "# Backtest Summary\n\n"
++        f"Run: `{report.run_id}`\n\n"
++        f"Verdict: `{report.verdict.value}`\n\n"
++        "## Metrics\n\n"
++        f"- Final equity: {metrics.final_equity:.4f}\n"
++        f"- Total return: {metrics.total_return_pct:.4f}%\n"
++        f"- Max drawdown: {metrics.max_drawdown_pct:.4f}%\n"
++        f"- Trade count: {metrics.trade_count}\n"
++        f"- Fee drag: {metrics.fee_drag:.4f}\n"
++        f"- Buy and hold return: {metrics.buy_and_hold_return_pct}\n\n"
++        "## Warnings\n\n"
++        f"{warnings}\n"
++    )
++
+ ```
+ 
+ ### src\cbot\research\sensitivity.py
+@@ -4417,8 +4499,54 @@ def validate_candles(
+ ### src\cbot\research\verdicts.py
+ 
+ ```text
+-"""Research verdict rules will be implemented in Slice 7."""
++"""Research verdict rules."""
++
++from __future__ import annotations
++
++from enum import StrEnum
++
++from cbot.research.metrics import MetricSummary
++
++
++class Verdict(StrEnum):
++    REJECT = "REJECT"
++    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
++    CONDITIONAL = "CONDITIONAL"
++    CANDIDATE = "CANDIDATE"
++
++
++def choose_verdict(
++    metrics: MetricSummary,
++    max_drawdown_pct: float,
++    min_trade_count: int,
++    sample_label: str,
++) -> tuple[Verdict, list[str]]:
++    warnings: list[str] = []
++
++    if metrics.max_drawdown_pct >= max_drawdown_pct:
++        warnings.append("DRAWDOWN_BREACHED")
++        return Verdict.REJECT, warnings
++
++    if metrics.trade_count < min_trade_count:
++        warnings.append("TRADE_COUNT_BELOW_FLOOR")
++        return Verdict.INSUFFICIENT_DATA, warnings
++
++    if sample_label != "OUT_OF_SAMPLE":
++        warnings.append("NOT_OUT_OF_SAMPLE")
++        return Verdict.CONDITIONAL, warnings
++
++    if metrics.total_return_pct <= metrics.cash_return_pct:
++        warnings.append("UNDERPERFORMS_CASH")
++        return Verdict.REJECT, warnings
+ 
++    if (
++        metrics.buy_and_hold_return_pct is not None
++        and metrics.total_return_pct < metrics.buy_and_hold_return_pct
++    ):
++        warnings.append("UNDERPERFORMS_BUY_AND_HOLD")
++        return Verdict.CONDITIONAL, warnings
++
++    return Verdict.CANDIDATE, warnings
+ 
+ ```
+ 
+@@ -4826,6 +4954,9 @@ def test_backtest_writes_run_artifacts(tmp_path):
+     assert (result.run_dir / "events.jsonl").exists()
+     assert (result.run_dir / "report.json").exists()
+     assert (result.run_dir / "summary.md").exists()
++    report = json.loads((result.run_dir / "report.json").read_text(encoding="utf-8"))
++    assert report["verdict"] == "INSUFFICIENT_DATA"
++    assert "TRADE_COUNT_BELOW_FLOOR" in report["warnings"]
+ 
+ 
+ def test_backtest_rejects_strategy_mismatch(tmp_path):
+@@ -5410,6 +5541,111 @@ def test_validate_candles_finds_bad_ohlc_and_volume():
+     assert {"invalid_high", "invalid_low", "negative_volume"} <= codes
+ 
+ 
++```
++
++### tests\test_metrics_verdicts.py
++
++```text
++import json
++
++from cbot.engine.portfolio import Portfolio
++from cbot.research.metrics import MetricSummary, calculate_metrics, percent_return
++from cbot.research.reporter import ResearchReport, render_summary, write_report
++from cbot.research.verdicts import Verdict, choose_verdict
++
++
++def test_percent_return():
++    assert percent_return(100, 110) == 10
++    assert percent_return(0, 110) == 0
++
++
++def test_calculate_metrics_includes_buy_and_hold():
++    portfolio = Portfolio(cash=0, base_asset="BTC", quote_asset="USDT", position_qty=1)
++    portfolio.snapshot(100)
++    portfolio.snapshot(80)
++
++    metrics = calculate_metrics(portfolio, initial_cash=100, final_price=80, first_price=50, total_fees=2)
++
++    assert metrics.final_equity == 80
++    assert metrics.total_return_pct == -20
++    assert metrics.max_drawdown_pct == 20
++    assert metrics.buy_and_hold_return_pct == 60
++    assert metrics.fee_drag == 2
++
++
++def test_verdict_rejects_drawdown_breach():
++    metrics = MetricSummary(
++        initial_cash=100,
++        final_equity=120,
++        total_return_pct=20,
++        max_drawdown_pct=25,
++        trade_count=100,
++        fee_drag=1,
++    )
++
++    verdict, warnings = choose_verdict(metrics, max_drawdown_pct=20, min_trade_count=30, sample_label="OUT_OF_SAMPLE")
++
++    assert verdict == Verdict.REJECT
++    assert "DRAWDOWN_BREACHED" in warnings
++
++
++def test_verdict_requires_trade_count_floor():
++    metrics = MetricSummary(
++        initial_cash=100,
++        final_equity=120,
++        total_return_pct=20,
++        max_drawdown_pct=5,
++        trade_count=1,
++        fee_drag=1,
++    )
++
++    verdict, warnings = choose_verdict(metrics, max_drawdown_pct=20, min_trade_count=30, sample_label="OUT_OF_SAMPLE")
++
++    assert verdict == Verdict.INSUFFICIENT_DATA
++    assert "TRADE_COUNT_BELOW_FLOOR" in warnings
++
++
++def test_verdict_marks_in_sample_as_conditional():
++    metrics = MetricSummary(
++        initial_cash=100,
++        final_equity=120,
++        total_return_pct=20,
++        max_drawdown_pct=5,
++        trade_count=100,
++        fee_drag=1,
++    )
++
++    verdict, warnings = choose_verdict(metrics, max_drawdown_pct=20, min_trade_count=30, sample_label="IN_SAMPLE")
++
++    assert verdict == Verdict.CONDITIONAL
++    assert "NOT_OUT_OF_SAMPLE" in warnings
++
++
++def test_write_report_outputs_json_and_summary(tmp_path):
++    report = ResearchReport(
++        run_id="run_20260502_123005_smoke",
++        status="COMPLETED",
++        verdict=Verdict.CONDITIONAL,
++        metrics=MetricSummary(
++            initial_cash=100,
++            final_equity=120,
++            total_return_pct=20,
++            max_drawdown_pct=5,
++            trade_count=100,
++            fee_drag=1,
++        ),
++        warnings=["NOT_OUT_OF_SAMPLE"],
++    )
++
++    report_path = tmp_path / "report.json"
++    summary_path = tmp_path / "summary.md"
++    write_report(report, report_path, summary_path)
++
++    assert json.loads(report_path.read_text(encoding="utf-8"))["verdict"] == "CONDITIONAL"
++    assert "NOT_OUT_OF_SAMPLE" in render_summary(report)
++    assert "Verdict" in summary_path.read_text(encoding="utf-8")
++
++
+ ```
+ 
+ ### tests\test_package.py
+diff --git a/src/cbot/cli.py b/src/cbot/cli.py
+index 5867873..d178b10 100644
+--- a/src/cbot/cli.py
++++ b/src/cbot/cli.py
+@@ -13,6 +13,8 @@ from cbot.engine.backtest import run_backtest
+ from cbot.market_data.binance import fetch_klines
+ from cbot.market_data.store import MarketDataStore
+ from cbot.market_data.validation import validate_candles
++from cbot.research.compare import compare_runs, load_report, render_comparison
++from cbot.research.sensitivity import parse_values, run_sensitivity
+ from cbot.strategies import STRATEGIES
+ 
+ 
+@@ -74,6 +76,38 @@ def handle_backtest(args: argparse.Namespace) -> int:
+     return 0
+ 
+ 
++def handle_compare(args: argparse.Namespace) -> int:
++    comparison = compare_runs([Path(run) for run in args.runs])
++    print(render_comparison(comparison))
++    return 0
++
++
++def handle_sensitivity(args: argparse.Namespace) -> int:
++    config = RunConfig.from_yaml(Path(args.config))
++    candles = MarketDataStore(Path("data/market")).read_candles(config.symbol, config.timeframe)
++    results = run_sensitivity(
++        config=config,
++        candles=candles,
++        parameter=args.param,
++        values=parse_values(args.values),
++        runs_root=Path("logs/runs"),
++    )
++    print("Sensitivity runs completed:")
++    for result in results:
++        print(f"- {result.run_id}: {result.run_dir}")
++    print("No winner was selected; compare the generated reports before making decisions.")
++    return 0
++
++
++def handle_report(args: argparse.Namespace) -> int:
++    report = load_report(Path(args.run))
++    print(f"Run: {report['run_id']}")
++    print(f"Verdict: {report['verdict']}")
++    print(f"Total return: {report['metrics']['total_return_pct']:.4f}%")
++    print(f"Max drawdown: {report['metrics']['max_drawdown_pct']:.4f}%")
++    return 0
++
++
+ def main(argv: Sequence[str] | None = None) -> int:
+     parser = build_parser()
+     args = parser.parse_args(argv)
+@@ -86,6 +120,12 @@ def main(argv: Sequence[str] | None = None) -> int:
+         return handle_fetch_data(args)
+     if args.command == "backtest":
+         return handle_backtest(args)
++    if args.command == "compare":
++        return handle_compare(args)
++    if args.command == "sensitivity":
++        return handle_sensitivity(args)
++    if args.command == "report":
++        return handle_report(args)
+ 
+     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
+     return 0
+diff --git a/src/cbot/engine/backtest.py b/src/cbot/engine/backtest.py
+index 14d8780..c00ba5c 100644
+--- a/src/cbot/engine/backtest.py
++++ b/src/cbot/engine/backtest.py
+@@ -10,6 +10,9 @@ from cbot.config import RunConfig
+ from cbot.engine.events import JsonlEventWriter, RunDirectory, create_run_directory, write_json
+ from cbot.engine.execution import ExecutionSettings, ExecutionSimulator
+ from cbot.engine.portfolio import Portfolio
++from cbot.research.metrics import calculate_metrics
++from cbot.research.reporter import ResearchReport, write_report
++from cbot.research.verdicts import choose_verdict
+ from cbot.strategies.protocol import Strategy
+ from cbot.types import Candle, Fill, SignalAction
+ 
+@@ -50,6 +53,7 @@ def run_backtest(
+     writer.write("run.started", run_dir.run_id, config.to_event_payload())
+     signals_seen = 0
+     fills_seen = 0
++    total_fees = 0.0
+     history: list[Candle] = []
+     portfolio = Portfolio(
+         cash=config.initial_cash,
+@@ -88,6 +92,7 @@ def run_backtest(
+                 fill = execution.simulate_fill(intent, candle, portfolio)
+                 if fill:
+                     portfolio.apply_fill(fill)
++                    total_fees += fill.fee
+                     fills_seen += 1
+                     writer.write("simulation.fill", run_dir.run_id, fill_payload(fill))
+                     writer.write(
+@@ -96,43 +101,47 @@ def run_backtest(
+                         portfolio.snapshot(candle.close),
+                     )
+ 
++    final_price = history[-1].close if history else config.initial_cash
++    first_price = history[0].close if history else None
++    metrics = calculate_metrics(
++        portfolio=portfolio,
++        initial_cash=config.initial_cash,
++        final_price=final_price,
++        first_price=first_price,
++        total_fees=total_fees,
++    )
++    verdict, warnings = choose_verdict(
++        metrics=metrics,
++        max_drawdown_pct=config.max_drawdown_pct,
++        min_trade_count=config.min_trade_count,
++        sample_label=config.sample_label,
++    )
++    warnings.append("BASIC_EXECUTION_SIMULATION")
++
+     writer.write(
+         "run.completed",
+         run_dir.run_id,
+         {
+             "status": "COMPLETED",
+-            "verdict": "INSUFFICIENT_DATA",
+-            "metrics": {
+-                "signals_seen": signals_seen,
+-                "fills_seen": fills_seen,
+-                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
+-                "max_drawdown_pct": portfolio.max_drawdown_pct,
+-            },
+-            "warnings": ["Slice 6 simulation is basic; metrics/verdict rules are implemented in later slices."],
+-        },
+-    )
+-    write_json(
+-        run_dir.report_path,
+-        {
+-            "run_id": run_dir.run_id,
+-            "status": "COMPLETED",
+-            "verdict": "INSUFFICIENT_DATA",
++            "verdict": verdict.value,
+             "metrics": {
++                **metrics.to_dict(),
+                 "signals_seen": signals_seen,
+                 "fills_seen": fills_seen,
+-                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
+-                "max_drawdown_pct": portfolio.max_drawdown_pct,
+             },
++            "warnings": warnings,
+         },
+     )
+-    run_dir.summary_path.write_text(
+-        (
+-            "# Backtest Summary\n\n"
+-            f"Run: `{run_dir.run_id}`\n\n"
+-            f"Signals seen: {signals_seen}\n\n"
+-            f"Fills seen: {fills_seen}\n"
++    write_report(
++        ResearchReport(
++            run_id=run_dir.run_id,
++            status="COMPLETED",
++            verdict=verdict,
++            metrics=metrics,
++            warnings=warnings,
+         ),
+-        encoding="utf-8",
++        run_dir.report_path,
++        run_dir.summary_path,
+     )
+     return BacktestResult(
+         run_id=run_dir.run_id,
+diff --git a/src/cbot/research/compare.py b/src/cbot/research/compare.py
+index f6d6f6e..a7043b3 100644
+--- a/src/cbot/research/compare.py
++++ b/src/cbot/research/compare.py
+@@ -1,2 +1,56 @@
+-"""Run comparison will be implemented in Slice 8."""
++"""Compare completed run reports without selecting a winner."""
  
 +from __future__ import annotations
 +
-+from dataclasses import dataclass, field
++import json
++from pathlib import Path
++from typing import Any
 +
-+from cbot.types import Fill, SignalAction
++
++def load_report(run_dir: Path) -> dict[str, Any]:
++    return json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
 +
 +
-+@dataclass
-+class Portfolio:
-+    cash: float
-+    base_asset: str
-+    quote_asset: str
-+    position_qty: float = 0.0
-+    realized_pnl: float = 0.0
-+    peak_equity: float = field(init=False)
-+    max_drawdown_pct: float = 0.0
-+    fills_count: int = 0
++def compare_runs(run_dirs: list[Path]) -> dict[str, Any]:
++    rows = []
++    warnings: list[str] = []
++    for run_dir in run_dirs:
++        report = load_report(run_dir)
++        metrics = report["metrics"]
++        rows.append(
++            {
++                "run_id": report["run_id"],
++                "verdict": report["verdict"],
++                "total_return_pct": metrics["total_return_pct"],
++                "max_drawdown_pct": metrics["max_drawdown_pct"],
++                "trade_count": metrics["trade_count"],
++                "fee_drag": metrics["fee_drag"],
++                "buy_and_hold_return_pct": metrics.get("buy_and_hold_return_pct"),
++                "warnings": report.get("warnings", []),
++            }
++        )
++    if rows:
++        returns = [row["total_return_pct"] for row in rows]
++        if max(returns) - min(returns) > 0:
++            warnings.append("Comparison is descriptive only; it does not select best parameters.")
++    return {"runs": rows, "warnings": warnings}
 +
-+    def __post_init__(self) -> None:
-+        self.peak_equity = self.cash
 +
-+    @property
-+    def has_position(self) -> bool:
-+        return self.position_qty > 0
++def render_comparison(comparison: dict[str, Any]) -> str:
++    lines = [
++        "# Run Comparison",
++        "",
++        "| run_id | verdict | return % | max DD % | trades | fee drag |",
++        "|---|---:|---:|---:|---:|---:|",
++    ]
++    for row in comparison["runs"]:
++        lines.append(
++            "| {run_id} | {verdict} | {total_return_pct:.4f} | {max_drawdown_pct:.4f} | "
++            "{trade_count} | {fee_drag:.4f} |".format(**row)
++        )
++    lines.extend(["", "## Warnings", ""])
++    if comparison["warnings"]:
++        lines.extend(f"- {warning}" for warning in comparison["warnings"])
++    else:
++        lines.append("- none")
++    return "\n".join(lines) + "\n"
+diff --git a/src/cbot/research/metrics.py b/src/cbot/research/metrics.py
+index 50f758b..8a46f84 100644
+--- a/src/cbot/research/metrics.py
++++ b/src/cbot/research/metrics.py
+@@ -1,2 +1,62 @@
+-"""Research metrics will be implemented in Slice 7."""
++"""Research metric calculation."""
+ 
++from __future__ import annotations
 +
-+    def view(self) -> dict[str, object]:
++from dataclasses import dataclass
++
++from cbot.engine.portfolio import Portfolio
++
++
++@dataclass(frozen=True)
++class MetricSummary:
++    initial_cash: float
++    final_equity: float
++    total_return_pct: float
++    max_drawdown_pct: float
++    trade_count: int
++    fee_drag: float
++    buy_and_hold_return_pct: float | None = None
++    cash_return_pct: float = 0.0
++
++    def to_dict(self) -> dict[str, float | int | None]:
 +        return {
-+            "has_position": self.has_position,
-+            "cash": self.cash,
-+            "position_qty": self.position_qty,
-+            "base_asset": self.base_asset,
-+            "quote_asset": self.quote_asset,
++            "initial_cash": self.initial_cash,
++            "final_equity": self.final_equity,
++            "total_return_pct": self.total_return_pct,
++            "max_drawdown_pct": self.max_drawdown_pct,
++            "trade_count": self.trade_count,
++            "fee_drag": self.fee_drag,
++            "buy_and_hold_return_pct": self.buy_and_hold_return_pct,
++            "cash_return_pct": self.cash_return_pct,
 +        }
 +
-+    def equity(self, mark_price: float) -> float:
-+        return self.cash + self.position_qty * mark_price
 +
-+    def apply_fill(self, fill: Fill) -> None:
-+        if fill.side == SignalAction.BUY:
-+            total_cost = fill.notional + fill.fee
-+            if total_cost > self.cash + 1e-9:
-+                raise ValueError("Fill cost exceeds available cash.")
-+            self.cash -= total_cost
-+            self.position_qty += fill.quantity
-+        elif fill.side in {SignalAction.SELL, SignalAction.EXIT}:
-+            if fill.quantity > self.position_qty + 1e-9:
-+                raise ValueError("Fill quantity exceeds current position.")
-+            self.cash += fill.notional - fill.fee
-+            self.position_qty -= fill.quantity
-+        else:
-+            raise ValueError(f"Unsupported fill side: {fill.side}")
-+        self.fills_count += 1
++def calculate_metrics(
++    portfolio: Portfolio,
++    initial_cash: float,
++    final_price: float,
++    first_price: float | None = None,
++    total_fees: float = 0.0,
++) -> MetricSummary:
++    final_equity = portfolio.equity(final_price)
++    total_return_pct = percent_return(initial_cash, final_equity)
++    buy_and_hold_return_pct = None
++    if first_price and first_price > 0:
++        buy_and_hold_return_pct = percent_return(first_price, final_price)
++    return MetricSummary(
++        initial_cash=round(initial_cash, 10),
++        final_equity=round(final_equity, 10),
++        total_return_pct=round(total_return_pct, 10),
++        max_drawdown_pct=round(portfolio.max_drawdown_pct, 10),
++        trade_count=portfolio.fills_count,
++        fee_drag=round(total_fees, 10),
++        buy_and_hold_return_pct=None
++        if buy_and_hold_return_pct is None
++        else round(buy_and_hold_return_pct, 10),
++    )
 +
-+    def snapshot(self, mark_price: float) -> dict[str, object]:
-+        equity = self.equity(mark_price)
-+        if equity > self.peak_equity:
-+            self.peak_equity = equity
-+        drawdown_pct = 0.0
-+        if self.peak_equity:
-+            drawdown_pct = max(0.0, (self.peak_equity - equity) / self.peak_equity * 100)
-+        self.max_drawdown_pct = max(self.max_drawdown_pct, drawdown_pct)
++
++def percent_return(start: float, end: float) -> float:
++    if start == 0:
++        return 0.0
++    return (end - start) / start * 100
+diff --git a/src/cbot/research/reporter.py b/src/cbot/research/reporter.py
+index d6fcf43..4b1a67b 100644
+--- a/src/cbot/research/reporter.py
++++ b/src/cbot/research/reporter.py
+@@ -1,2 +1,52 @@
+-"""Research reports will be implemented in Slice 7."""
++"""Report writing for completed research runs."""
+ 
++from __future__ import annotations
++
++from dataclasses import dataclass
++from pathlib import Path
++
++from cbot.engine.events import write_json
++from cbot.research.metrics import MetricSummary
++from cbot.research.verdicts import Verdict
++
++
++@dataclass(frozen=True)
++class ResearchReport:
++    run_id: str
++    status: str
++    verdict: Verdict
++    metrics: MetricSummary
++    warnings: list[str]
++
++    def to_dict(self) -> dict[str, object]:
 +        return {
-+            "cash": round(self.cash, 10),
-+            "equity": round(equity, 10),
-+            "drawdown_pct": round(drawdown_pct, 10),
-+            "positions": {
-+                self.base_asset: round(self.position_qty, 10),
++            "run_id": self.run_id,
++            "status": self.status,
++            "verdict": self.verdict.value,
++            "metrics": self.metrics.to_dict(),
++            "warnings": self.warnings,
++        }
++
++
++def write_report(report: ResearchReport, report_path: Path, summary_path: Path) -> None:
++    write_json(report_path, report.to_dict())
++    summary_path.write_text(render_summary(report), encoding="utf-8")
++
++
++def render_summary(report: ResearchReport) -> str:
++    metrics = report.metrics
++    warnings = "\n".join(f"- {warning}" for warning in report.warnings) or "- none"
++    return (
++        "# Backtest Summary\n\n"
++        f"Run: `{report.run_id}`\n\n"
++        f"Verdict: `{report.verdict.value}`\n\n"
++        "## Metrics\n\n"
++        f"- Final equity: {metrics.final_equity:.4f}\n"
++        f"- Total return: {metrics.total_return_pct:.4f}%\n"
++        f"- Max drawdown: {metrics.max_drawdown_pct:.4f}%\n"
++        f"- Trade count: {metrics.trade_count}\n"
++        f"- Fee drag: {metrics.fee_drag:.4f}\n"
++        f"- Buy and hold return: {metrics.buy_and_hold_return_pct}\n\n"
++        "## Warnings\n\n"
++        f"{warnings}\n"
++    )
+diff --git a/src/cbot/research/sensitivity.py b/src/cbot/research/sensitivity.py
+index 18b11a7..2228f50 100644
+--- a/src/cbot/research/sensitivity.py
++++ b/src/cbot/research/sensitivity.py
+@@ -1,2 +1,50 @@
+-"""Sensitivity analysis will be implemented in Slice 8."""
++"""Bounded sensitivity sweeps."""
+ 
++from __future__ import annotations
++
++from dataclasses import replace
++from pathlib import Path
++from typing import Callable
++
++from cbot.config import RunConfig
++from cbot.engine.backtest import BacktestResult, run_backtest
++from cbot.strategies import STRATEGIES
++from cbot.types import Candle
++
++
++def parse_values(raw: str) -> list[float | int | str]:
++    values: list[float | int | str] = []
++    for item in raw.split(","):
++        stripped = item.strip()
++        if not stripped:
++            continue
++        try:
++            number = float(stripped)
++        except ValueError:
++            values.append(stripped)
++            continue
++        values.append(int(number) if number.is_integer() else number)
++    return values
++
++
++def config_with_parameter(config: RunConfig, parameter: str, value: float | int | str) -> RunConfig:
++    parameters = dict(config.strategy_parameters)
++    parameters[parameter] = value
++    label = f"{config.label}_{parameter}_{value}"
++    return replace(config, label=label, strategy_parameters=parameters)
++
++
++def run_sensitivity(
++    config: RunConfig,
++    candles: list[Candle],
++    parameter: str,
++    values: list[float | int | str],
++    runs_root: Path,
++    backtest_fn: Callable[..., BacktestResult] = run_backtest,
++) -> list[BacktestResult]:
++    results: list[BacktestResult] = []
++    strategy_cls = STRATEGIES[config.strategy_name]
++    for value in values:
++        variant = config_with_parameter(config, parameter, value)
++        results.append(backtest_fn(variant, candles, strategy_cls(), runs_root))
++    return results
+diff --git a/src/cbot/research/verdicts.py b/src/cbot/research/verdicts.py
+index ae16bac..657fb0a 100644
+--- a/src/cbot/research/verdicts.py
++++ b/src/cbot/research/verdicts.py
+@@ -1,2 +1,48 @@
+-"""Research verdict rules will be implemented in Slice 7."""
++"""Research verdict rules."""
+ 
++from __future__ import annotations
++
++from enum import StrEnum
++
++from cbot.research.metrics import MetricSummary
++
++
++class Verdict(StrEnum):
++    REJECT = "REJECT"
++    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
++    CONDITIONAL = "CONDITIONAL"
++    CANDIDATE = "CANDIDATE"
++
++
++def choose_verdict(
++    metrics: MetricSummary,
++    max_drawdown_pct: float,
++    min_trade_count: int,
++    sample_label: str,
++) -> tuple[Verdict, list[str]]:
++    warnings: list[str] = []
++
++    if metrics.max_drawdown_pct >= max_drawdown_pct:
++        warnings.append("DRAWDOWN_BREACHED")
++        return Verdict.REJECT, warnings
++
++    if metrics.trade_count < min_trade_count:
++        warnings.append("TRADE_COUNT_BELOW_FLOOR")
++        return Verdict.INSUFFICIENT_DATA, warnings
++
++    if sample_label != "OUT_OF_SAMPLE":
++        warnings.append("NOT_OUT_OF_SAMPLE")
++        return Verdict.CONDITIONAL, warnings
++
++    if metrics.total_return_pct <= metrics.cash_return_pct:
++        warnings.append("UNDERPERFORMS_CASH")
++        return Verdict.REJECT, warnings
++
++    if (
++        metrics.buy_and_hold_return_pct is not None
++        and metrics.total_return_pct < metrics.buy_and_hold_return_pct
++    ):
++        warnings.append("UNDERPERFORMS_BUY_AND_HOLD")
++        return Verdict.CONDITIONAL, warnings
++
++    return Verdict.CANDIDATE, warnings
+diff --git a/tests/test_backtest_determinism.py b/tests/test_backtest_determinism.py
+index 47232d6..a067907 100644
+--- a/tests/test_backtest_determinism.py
++++ b/tests/test_backtest_determinism.py
+@@ -57,6 +57,9 @@ def test_backtest_writes_run_artifacts(tmp_path):
+     assert (result.run_dir / "events.jsonl").exists()
+     assert (result.run_dir / "report.json").exists()
+     assert (result.run_dir / "summary.md").exists()
++    report = json.loads((result.run_dir / "report.json").read_text(encoding="utf-8"))
++    assert report["verdict"] == "INSUFFICIENT_DATA"
++    assert "TRADE_COUNT_BELOW_FLOOR" in report["warnings"]
+ 
+ 
+ def test_backtest_rejects_strategy_mismatch(tmp_path):
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 7bd67f1..e76f484 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -87,3 +87,68 @@ def test_backtest_command_uses_engine(monkeypatch, tmp_path, capsys):
+     captured = capsys.readouterr()
+     assert result == 0
+     assert "Wrote run run_20260502_123005_smoke" in captured.out
++
++
++def test_compare_command_renders_comparison(monkeypatch, capsys):
++    monkeypatch.setattr("cbot.cli.compare_runs", lambda runs: {"runs": [], "warnings": []})
++    monkeypatch.setattr("cbot.cli.render_comparison", lambda comparison: "comparison text")
++
++    result = main(["compare", "--runs", "a", "b"])
++
++    captured = capsys.readouterr()
++    assert result == 0
++    assert "comparison text" in captured.out
++
++
++def test_report_command_prints_key_metrics(monkeypatch, capsys):
++    monkeypatch.setattr(
++        "cbot.cli.load_report",
++        lambda run: {
++            "run_id": "run_a",
++            "verdict": "CONDITIONAL",
++            "metrics": {
++                "total_return_pct": 1.23,
++                "max_drawdown_pct": 4.56,
 +            },
-+            "realized_pnl": round(self.realized_pnl, 10),
-+            "unrealized_pnl": round(self.position_qty * mark_price, 10),
-+        }
-diff --git a/src/cbot/types.py b/src/cbot/types.py
-index b0a2fd4..e4ba0bf 100644
---- a/src/cbot/types.py
-+++ b/src/cbot/types.py
-@@ -81,3 +81,27 @@ class Signal:
-     @classmethod
-     def hold(cls, reason: str = "no signal") -> "Signal":
-         return cls(action=SignalAction.HOLD, reason=reason)
++        },
++    )
++
++    result = main(["report", "--run", "run_a"])
++
++    captured = capsys.readouterr()
++    assert result == 0
++    assert "Verdict: CONDITIONAL" in captured.out
 +
 +
-+@dataclass(frozen=True)
-+class OrderIntent:
-+    symbol: str
-+    side: SignalAction
-+    target_fraction: float
-+    reason: str
++def test_sensitivity_command_runs_sweep(monkeypatch, tmp_path, capsys):
++    config_path = tmp_path / "config.yaml"
++    config_path.write_text("{}", encoding="utf-8")
 +
++    class FakeConfig:
++        symbol = "BTCUSDT"
++        timeframe = "1h"
 +
-+@dataclass(frozen=True)
-+class Fill:
-+    symbol: str
-+    side: SignalAction
-+    quantity: float
-+    price: float
-+    fee: float
-+    fee_asset: str
-+    slippage_bps: float
-+    order_id: str
++        @classmethod
++        def from_yaml(cls, path):
++            return cls()
 +
-+    @property
-+    def notional(self) -> float:
-+        return self.quantity * self.price
++    class FakeStore:
++        def __init__(self, root):
++            pass
++
++        def read_candles(self, symbol, timeframe):
++            return []
++
++    class FakeResult:
++        run_id = "run_a"
++        run_dir = "logs/runs/run_a"
++
++    monkeypatch.setattr("cbot.cli.RunConfig", FakeConfig)
++    monkeypatch.setattr("cbot.cli.MarketDataStore", FakeStore)
++    monkeypatch.setattr("cbot.cli.run_sensitivity", lambda **kwargs: [FakeResult()])
++
++    result = main(["sensitivity", "--config", str(config_path), "--param", "x", "--values", "1,2"])
++
++    captured = capsys.readouterr()
++    assert result == 0
++    assert "No winner was selected" in captured.out
 
 [stderr]
+warning: in the working copy of 'src/cbot/cli.py', LF will be replaced by CRLF the next time Git touches it
 warning: in the working copy of 'src/cbot/engine/backtest.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/engine/execution.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/engine/portfolio.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/research/compare.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/research/metrics.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/research/reporter.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/research/sensitivity.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/research/verdicts.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/test_backtest_determinism.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/test_cli.py', LF will be replaced by CRLF the next time Git touches it
 ```
 
 ## File Tree
@@ -429,12 +1710,14 @@ warning: in the working copy of 'src/cbot/types.py', LF will be replaced by CRLF
 - src\cbot\types.py
 - tests\test_backtest_determinism.py
 - tests\test_cli.py
+- tests\test_compare_sensitivity.py
 - tests\test_config.py
 - tests\test_events.py
 - tests\test_execution_simulator.py
 - tests\test_market_data_binance.py
 - tests\test_market_data_store.py
 - tests\test_market_data_validation.py
+- tests\test_metrics_verdicts.py
 - tests\test_package.py
 - tests\test_portfolio.py
 - tests\test_strategies.py
@@ -3442,7 +4725,7 @@ The generated file goes to `reviews/latest/context-pack.md`.
 ### reviews\latest\context-pack.md
 
 ```text
-[Skipped: file is 180705 bytes, above 24000 byte limit]
+[Skipped: file is 193977 bytes, above 24000 byte limit]
 ```
 
 ### src\cbot\__init__.py
@@ -3475,6 +4758,8 @@ from cbot.engine.backtest import run_backtest
 from cbot.market_data.binance import fetch_klines
 from cbot.market_data.store import MarketDataStore
 from cbot.market_data.validation import validate_candles
+from cbot.research.compare import compare_runs, load_report, render_comparison
+from cbot.research.sensitivity import parse_values, run_sensitivity
 from cbot.strategies import STRATEGIES
 
 
@@ -3536,6 +4821,38 @@ def handle_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_compare(args: argparse.Namespace) -> int:
+    comparison = compare_runs([Path(run) for run in args.runs])
+    print(render_comparison(comparison))
+    return 0
+
+
+def handle_sensitivity(args: argparse.Namespace) -> int:
+    config = RunConfig.from_yaml(Path(args.config))
+    candles = MarketDataStore(Path("data/market")).read_candles(config.symbol, config.timeframe)
+    results = run_sensitivity(
+        config=config,
+        candles=candles,
+        parameter=args.param,
+        values=parse_values(args.values),
+        runs_root=Path("logs/runs"),
+    )
+    print("Sensitivity runs completed:")
+    for result in results:
+        print(f"- {result.run_id}: {result.run_dir}")
+    print("No winner was selected; compare the generated reports before making decisions.")
+    return 0
+
+
+def handle_report(args: argparse.Namespace) -> int:
+    report = load_report(Path(args.run))
+    print(f"Run: {report['run_id']}")
+    print(f"Verdict: {report['verdict']}")
+    print(f"Total return: {report['metrics']['total_return_pct']:.4f}%")
+    print(f"Max drawdown: {report['metrics']['max_drawdown_pct']:.4f}%")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -3548,6 +4865,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return handle_fetch_data(args)
     if args.command == "backtest":
         return handle_backtest(args)
+    if args.command == "compare":
+        return handle_compare(args)
+    if args.command == "sensitivity":
+        return handle_sensitivity(args)
+    if args.command == "report":
+        return handle_report(args)
 
     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
     return 0
@@ -3682,6 +5005,9 @@ from cbot.config import RunConfig
 from cbot.engine.events import JsonlEventWriter, RunDirectory, create_run_directory, write_json
 from cbot.engine.execution import ExecutionSettings, ExecutionSimulator
 from cbot.engine.portfolio import Portfolio
+from cbot.research.metrics import calculate_metrics
+from cbot.research.reporter import ResearchReport, write_report
+from cbot.research.verdicts import choose_verdict
 from cbot.strategies.protocol import Strategy
 from cbot.types import Candle, Fill, SignalAction
 
@@ -3722,6 +5048,7 @@ def run_backtest(
     writer.write("run.started", run_dir.run_id, config.to_event_payload())
     signals_seen = 0
     fills_seen = 0
+    total_fees = 0.0
     history: list[Candle] = []
     portfolio = Portfolio(
         cash=config.initial_cash,
@@ -3760,6 +5087,7 @@ def run_backtest(
                 fill = execution.simulate_fill(intent, candle, portfolio)
                 if fill:
                     portfolio.apply_fill(fill)
+                    total_fees += fill.fee
                     fills_seen += 1
                     writer.write("simulation.fill", run_dir.run_id, fill_payload(fill))
                     writer.write(
@@ -3768,43 +5096,47 @@ def run_backtest(
                         portfolio.snapshot(candle.close),
                     )
 
+    final_price = history[-1].close if history else config.initial_cash
+    first_price = history[0].close if history else None
+    metrics = calculate_metrics(
+        portfolio=portfolio,
+        initial_cash=config.initial_cash,
+        final_price=final_price,
+        first_price=first_price,
+        total_fees=total_fees,
+    )
+    verdict, warnings = choose_verdict(
+        metrics=metrics,
+        max_drawdown_pct=config.max_drawdown_pct,
+        min_trade_count=config.min_trade_count,
+        sample_label=config.sample_label,
+    )
+    warnings.append("BASIC_EXECUTION_SIMULATION")
+
     writer.write(
         "run.completed",
         run_dir.run_id,
         {
             "status": "COMPLETED",
-            "verdict": "INSUFFICIENT_DATA",
+            "verdict": verdict.value,
             "metrics": {
+                **metrics.to_dict(),
                 "signals_seen": signals_seen,
                 "fills_seen": fills_seen,
-                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
-                "max_drawdown_pct": portfolio.max_drawdown_pct,
             },
-            "warnings": ["Slice 6 simulation is basic; metrics/verdict rules are implemented in later slices."],
+            "warnings": warnings,
         },
     )
-    write_json(
-        run_dir.report_path,
-        {
-            "run_id": run_dir.run_id,
-            "status": "COMPLETED",
-            "verdict": "INSUFFICIENT_DATA",
-            "metrics": {
-                "signals_seen": signals_seen,
-                "fills_seen": fills_seen,
-                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
-                "max_drawdown_pct": portfolio.max_drawdown_pct,
-            },
-        },
-    )
-    run_dir.summary_path.write_text(
-        (
-            "# Backtest Summary\n\n"
-            f"Run: `{run_dir.run_id}`\n\n"
-            f"Signals seen: {signals_seen}\n\n"
-            f"Fills seen: {fills_seen}\n"
+    write_report(
+        ResearchReport(
+            run_id=run_dir.run_id,
+            status="COMPLETED",
+            verdict=verdict,
+            metrics=metrics,
+            warnings=warnings,
         ),
-        encoding="utf-8",
+        run_dir.report_path,
+        run_dir.summary_path,
     )
     return BacktestResult(
         run_id=run_dir.run_id,
@@ -4385,40 +5717,298 @@ def validate_candles(
 ### src\cbot\research\compare.py
 
 ```text
-"""Run comparison will be implemented in Slice 8."""
+"""Compare completed run reports without selecting a winner."""
 
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+
+def load_report(run_dir: Path) -> dict[str, Any]:
+    return json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+
+
+def compare_runs(run_dirs: list[Path]) -> dict[str, Any]:
+    rows = []
+    warnings: list[str] = []
+    for run_dir in run_dirs:
+        report = load_report(run_dir)
+        metrics = report["metrics"]
+        rows.append(
+            {
+                "run_id": report["run_id"],
+                "verdict": report["verdict"],
+                "total_return_pct": metrics["total_return_pct"],
+                "max_drawdown_pct": metrics["max_drawdown_pct"],
+                "trade_count": metrics["trade_count"],
+                "fee_drag": metrics["fee_drag"],
+                "buy_and_hold_return_pct": metrics.get("buy_and_hold_return_pct"),
+                "warnings": report.get("warnings", []),
+            }
+        )
+    if rows:
+        returns = [row["total_return_pct"] for row in rows]
+        if max(returns) - min(returns) > 0:
+            warnings.append("Comparison is descriptive only; it does not select best parameters.")
+    return {"runs": rows, "warnings": warnings}
+
+
+def render_comparison(comparison: dict[str, Any]) -> str:
+    lines = [
+        "# Run Comparison",
+        "",
+        "| run_id | verdict | return % | max DD % | trades | fee drag |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in comparison["runs"]:
+        lines.append(
+            "| {run_id} | {verdict} | {total_return_pct:.4f} | {max_drawdown_pct:.4f} | "
+            "{trade_count} | {fee_drag:.4f} |".format(**row)
+        )
+    lines.extend(["", "## Warnings", ""])
+    if comparison["warnings"]:
+        lines.extend(f"- {warning}" for warning in comparison["warnings"])
+    else:
+        lines.append("- none")
+    return "\n".join(lines) + "\n"
 
 ```
 
 ### src\cbot\research\metrics.py
 
 ```text
-"""Research metrics will be implemented in Slice 7."""
+"""Research metric calculation."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from cbot.engine.portfolio import Portfolio
+
+
+@dataclass(frozen=True)
+class MetricSummary:
+    initial_cash: float
+    final_equity: float
+    total_return_pct: float
+    max_drawdown_pct: float
+    trade_count: int
+    fee_drag: float
+    buy_and_hold_return_pct: float | None = None
+    cash_return_pct: float = 0.0
+
+    def to_dict(self) -> dict[str, float | int | None]:
+        return {
+            "initial_cash": self.initial_cash,
+            "final_equity": self.final_equity,
+            "total_return_pct": self.total_return_pct,
+            "max_drawdown_pct": self.max_drawdown_pct,
+            "trade_count": self.trade_count,
+            "fee_drag": self.fee_drag,
+            "buy_and_hold_return_pct": self.buy_and_hold_return_pct,
+            "cash_return_pct": self.cash_return_pct,
+        }
+
+
+def calculate_metrics(
+    portfolio: Portfolio,
+    initial_cash: float,
+    final_price: float,
+    first_price: float | None = None,
+    total_fees: float = 0.0,
+) -> MetricSummary:
+    final_equity = portfolio.equity(final_price)
+    total_return_pct = percent_return(initial_cash, final_equity)
+    buy_and_hold_return_pct = None
+    if first_price and first_price > 0:
+        buy_and_hold_return_pct = percent_return(first_price, final_price)
+    return MetricSummary(
+        initial_cash=round(initial_cash, 10),
+        final_equity=round(final_equity, 10),
+        total_return_pct=round(total_return_pct, 10),
+        max_drawdown_pct=round(portfolio.max_drawdown_pct, 10),
+        trade_count=portfolio.fills_count,
+        fee_drag=round(total_fees, 10),
+        buy_and_hold_return_pct=None
+        if buy_and_hold_return_pct is None
+        else round(buy_and_hold_return_pct, 10),
+    )
+
+
+def percent_return(start: float, end: float) -> float:
+    if start == 0:
+        return 0.0
+    return (end - start) / start * 100
 
 ```
 
 ### src\cbot\research\reporter.py
 
 ```text
-"""Research reports will be implemented in Slice 7."""
+"""Report writing for completed research runs."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from cbot.engine.events import write_json
+from cbot.research.metrics import MetricSummary
+from cbot.research.verdicts import Verdict
+
+
+@dataclass(frozen=True)
+class ResearchReport:
+    run_id: str
+    status: str
+    verdict: Verdict
+    metrics: MetricSummary
+    warnings: list[str]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "run_id": self.run_id,
+            "status": self.status,
+            "verdict": self.verdict.value,
+            "metrics": self.metrics.to_dict(),
+            "warnings": self.warnings,
+        }
+
+
+def write_report(report: ResearchReport, report_path: Path, summary_path: Path) -> None:
+    write_json(report_path, report.to_dict())
+    summary_path.write_text(render_summary(report), encoding="utf-8")
+
+
+def render_summary(report: ResearchReport) -> str:
+    metrics = report.metrics
+    warnings = "\n".join(f"- {warning}" for warning in report.warnings) or "- none"
+    return (
+        "# Backtest Summary\n\n"
+        f"Run: `{report.run_id}`\n\n"
+        f"Verdict: `{report.verdict.value}`\n\n"
+        "## Metrics\n\n"
+        f"- Final equity: {metrics.final_equity:.4f}\n"
+        f"- Total return: {metrics.total_return_pct:.4f}%\n"
+        f"- Max drawdown: {metrics.max_drawdown_pct:.4f}%\n"
+        f"- Trade count: {metrics.trade_count}\n"
+        f"- Fee drag: {metrics.fee_drag:.4f}\n"
+        f"- Buy and hold return: {metrics.buy_and_hold_return_pct}\n\n"
+        "## Warnings\n\n"
+        f"{warnings}\n"
+    )
 
 ```
 
 ### src\cbot\research\sensitivity.py
 
 ```text
-"""Sensitivity analysis will be implemented in Slice 8."""
+"""Bounded sensitivity sweeps."""
 
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+from typing import Callable
+
+from cbot.config import RunConfig
+from cbot.engine.backtest import BacktestResult, run_backtest
+from cbot.strategies import STRATEGIES
+from cbot.types import Candle
+
+
+def parse_values(raw: str) -> list[float | int | str]:
+    values: list[float | int | str] = []
+    for item in raw.split(","):
+        stripped = item.strip()
+        if not stripped:
+            continue
+        try:
+            number = float(stripped)
+        except ValueError:
+            values.append(stripped)
+            continue
+        values.append(int(number) if number.is_integer() else number)
+    return values
+
+
+def config_with_parameter(config: RunConfig, parameter: str, value: float | int | str) -> RunConfig:
+    parameters = dict(config.strategy_parameters)
+    parameters[parameter] = value
+    label = f"{config.label}_{parameter}_{value}"
+    return replace(config, label=label, strategy_parameters=parameters)
+
+
+def run_sensitivity(
+    config: RunConfig,
+    candles: list[Candle],
+    parameter: str,
+    values: list[float | int | str],
+    runs_root: Path,
+    backtest_fn: Callable[..., BacktestResult] = run_backtest,
+) -> list[BacktestResult]:
+    results: list[BacktestResult] = []
+    strategy_cls = STRATEGIES[config.strategy_name]
+    for value in values:
+        variant = config_with_parameter(config, parameter, value)
+        results.append(backtest_fn(variant, candles, strategy_cls(), runs_root))
+    return results
 
 ```
 
 ### src\cbot\research\verdicts.py
 
 ```text
-"""Research verdict rules will be implemented in Slice 7."""
+"""Research verdict rules."""
 
+from __future__ import annotations
+
+from enum import StrEnum
+
+from cbot.research.metrics import MetricSummary
+
+
+class Verdict(StrEnum):
+    REJECT = "REJECT"
+    INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+    CONDITIONAL = "CONDITIONAL"
+    CANDIDATE = "CANDIDATE"
+
+
+def choose_verdict(
+    metrics: MetricSummary,
+    max_drawdown_pct: float,
+    min_trade_count: int,
+    sample_label: str,
+) -> tuple[Verdict, list[str]]:
+    warnings: list[str] = []
+
+    if metrics.max_drawdown_pct >= max_drawdown_pct:
+        warnings.append("DRAWDOWN_BREACHED")
+        return Verdict.REJECT, warnings
+
+    if metrics.trade_count < min_trade_count:
+        warnings.append("TRADE_COUNT_BELOW_FLOOR")
+        return Verdict.INSUFFICIENT_DATA, warnings
+
+    if sample_label != "OUT_OF_SAMPLE":
+        warnings.append("NOT_OUT_OF_SAMPLE")
+        return Verdict.CONDITIONAL, warnings
+
+    if metrics.total_return_pct <= metrics.cash_return_pct:
+        warnings.append("UNDERPERFORMS_CASH")
+        return Verdict.REJECT, warnings
+
+    if (
+        metrics.buy_and_hold_return_pct is not None
+        and metrics.total_return_pct < metrics.buy_and_hold_return_pct
+    ):
+        warnings.append("UNDERPERFORMS_BUY_AND_HOLD")
+        return Verdict.CONDITIONAL, warnings
+
+    return Verdict.CANDIDATE, warnings
 
 ```
 
@@ -4826,6 +6416,9 @@ def test_backtest_writes_run_artifacts(tmp_path):
     assert (result.run_dir / "events.jsonl").exists()
     assert (result.run_dir / "report.json").exists()
     assert (result.run_dir / "summary.md").exists()
+    report = json.loads((result.run_dir / "report.json").read_text(encoding="utf-8"))
+    assert report["verdict"] == "INSUFFICIENT_DATA"
+    assert "TRADE_COUNT_BELOW_FLOOR" in report["warnings"]
 
 
 def test_backtest_rejects_strategy_mismatch(tmp_path):
@@ -4933,6 +6526,154 @@ def test_backtest_command_uses_engine(monkeypatch, tmp_path, capsys):
     captured = capsys.readouterr()
     assert result == 0
     assert "Wrote run run_20260502_123005_smoke" in captured.out
+
+
+def test_compare_command_renders_comparison(monkeypatch, capsys):
+    monkeypatch.setattr("cbot.cli.compare_runs", lambda runs: {"runs": [], "warnings": []})
+    monkeypatch.setattr("cbot.cli.render_comparison", lambda comparison: "comparison text")
+
+    result = main(["compare", "--runs", "a", "b"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "comparison text" in captured.out
+
+
+def test_report_command_prints_key_metrics(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "cbot.cli.load_report",
+        lambda run: {
+            "run_id": "run_a",
+            "verdict": "CONDITIONAL",
+            "metrics": {
+                "total_return_pct": 1.23,
+                "max_drawdown_pct": 4.56,
+            },
+        },
+    )
+
+    result = main(["report", "--run", "run_a"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Verdict: CONDITIONAL" in captured.out
+
+
+def test_sensitivity_command_runs_sweep(monkeypatch, tmp_path, capsys):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}", encoding="utf-8")
+
+    class FakeConfig:
+        symbol = "BTCUSDT"
+        timeframe = "1h"
+
+        @classmethod
+        def from_yaml(cls, path):
+            return cls()
+
+    class FakeStore:
+        def __init__(self, root):
+            pass
+
+        def read_candles(self, symbol, timeframe):
+            return []
+
+    class FakeResult:
+        run_id = "run_a"
+        run_dir = "logs/runs/run_a"
+
+    monkeypatch.setattr("cbot.cli.RunConfig", FakeConfig)
+    monkeypatch.setattr("cbot.cli.MarketDataStore", FakeStore)
+    monkeypatch.setattr("cbot.cli.run_sensitivity", lambda **kwargs: [FakeResult()])
+
+    result = main(["sensitivity", "--config", str(config_path), "--param", "x", "--values", "1,2"])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "No winner was selected" in captured.out
+
+```
+
+### tests\test_compare_sensitivity.py
+
+```text
+import json
+
+from cbot.research.compare import compare_runs, render_comparison
+from cbot.research.sensitivity import config_with_parameter, parse_values, run_sensitivity
+
+from tests.test_config import raw_config
+from cbot.config import RunConfig
+
+
+def write_report(run_dir, run_id, total_return):
+    run_dir.mkdir()
+    (run_dir / "report.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "verdict": "CONDITIONAL",
+                "metrics": {
+                    "total_return_pct": total_return,
+                    "max_drawdown_pct": 5,
+                    "trade_count": 30,
+                    "fee_drag": 1,
+                    "buy_and_hold_return_pct": 10,
+                },
+                "warnings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_compare_runs_is_descriptive(tmp_path):
+    first = tmp_path / "run_a"
+    second = tmp_path / "run_b"
+    write_report(first, "run_a", 1)
+    write_report(second, "run_b", 2)
+
+    comparison = compare_runs([first, second])
+    rendered = render_comparison(comparison)
+
+    assert len(comparison["runs"]) == 2
+    assert "does not select best parameters" in comparison["warnings"][0]
+    assert "| run_a |" in rendered
+
+
+def test_parse_values_converts_numbers_and_strings():
+    assert parse_values("1,2.5,foo") == [1, 2.5, "foo"]
+
+
+def test_config_with_parameter_updates_label_and_value():
+    config = RunConfig.from_dict(raw_config())
+    updated = config_with_parameter(config, "fast_window", 10)
+
+    assert updated.strategy_parameters["fast_window"] == 10
+    assert updated.label.endswith("fast_window_10")
+    assert config.strategy_parameters["fast_window"] == 2
+
+
+def test_run_sensitivity_calls_backtest_for_each_value(tmp_path):
+    config = RunConfig.from_dict(raw_config())
+    calls = []
+
+    class Result:
+        def __init__(self, label):
+            self.run_id = label
+            self.run_dir = tmp_path / label
+            self.signals_seen = 0
+            self.fills_seen = 0
+
+    def fake_backtest(variant, candles, strategy, runs_root):
+        calls.append((variant.strategy_parameters["fast_window"], runs_root))
+        return Result(variant.label)
+
+    results = run_sensitivity(config, [], "fast_window", [3, 4], tmp_path, backtest_fn=fake_backtest)
+
+    assert [call[0] for call in calls] == [3, 4]
+    assert len(results) == 2
+
 
 ```
 
@@ -5408,6 +7149,111 @@ def test_validate_candles_finds_bad_ohlc_and_volume():
     )
     codes = {warning.code for warning in warnings}
     assert {"invalid_high", "invalid_low", "negative_volume"} <= codes
+
+
+```
+
+### tests\test_metrics_verdicts.py
+
+```text
+import json
+
+from cbot.engine.portfolio import Portfolio
+from cbot.research.metrics import MetricSummary, calculate_metrics, percent_return
+from cbot.research.reporter import ResearchReport, render_summary, write_report
+from cbot.research.verdicts import Verdict, choose_verdict
+
+
+def test_percent_return():
+    assert percent_return(100, 110) == 10
+    assert percent_return(0, 110) == 0
+
+
+def test_calculate_metrics_includes_buy_and_hold():
+    portfolio = Portfolio(cash=0, base_asset="BTC", quote_asset="USDT", position_qty=1)
+    portfolio.snapshot(100)
+    portfolio.snapshot(80)
+
+    metrics = calculate_metrics(portfolio, initial_cash=100, final_price=80, first_price=50, total_fees=2)
+
+    assert metrics.final_equity == 80
+    assert metrics.total_return_pct == -20
+    assert metrics.max_drawdown_pct == 20
+    assert metrics.buy_and_hold_return_pct == 60
+    assert metrics.fee_drag == 2
+
+
+def test_verdict_rejects_drawdown_breach():
+    metrics = MetricSummary(
+        initial_cash=100,
+        final_equity=120,
+        total_return_pct=20,
+        max_drawdown_pct=25,
+        trade_count=100,
+        fee_drag=1,
+    )
+
+    verdict, warnings = choose_verdict(metrics, max_drawdown_pct=20, min_trade_count=30, sample_label="OUT_OF_SAMPLE")
+
+    assert verdict == Verdict.REJECT
+    assert "DRAWDOWN_BREACHED" in warnings
+
+
+def test_verdict_requires_trade_count_floor():
+    metrics = MetricSummary(
+        initial_cash=100,
+        final_equity=120,
+        total_return_pct=20,
+        max_drawdown_pct=5,
+        trade_count=1,
+        fee_drag=1,
+    )
+
+    verdict, warnings = choose_verdict(metrics, max_drawdown_pct=20, min_trade_count=30, sample_label="OUT_OF_SAMPLE")
+
+    assert verdict == Verdict.INSUFFICIENT_DATA
+    assert "TRADE_COUNT_BELOW_FLOOR" in warnings
+
+
+def test_verdict_marks_in_sample_as_conditional():
+    metrics = MetricSummary(
+        initial_cash=100,
+        final_equity=120,
+        total_return_pct=20,
+        max_drawdown_pct=5,
+        trade_count=100,
+        fee_drag=1,
+    )
+
+    verdict, warnings = choose_verdict(metrics, max_drawdown_pct=20, min_trade_count=30, sample_label="IN_SAMPLE")
+
+    assert verdict == Verdict.CONDITIONAL
+    assert "NOT_OUT_OF_SAMPLE" in warnings
+
+
+def test_write_report_outputs_json_and_summary(tmp_path):
+    report = ResearchReport(
+        run_id="run_20260502_123005_smoke",
+        status="COMPLETED",
+        verdict=Verdict.CONDITIONAL,
+        metrics=MetricSummary(
+            initial_cash=100,
+            final_equity=120,
+            total_return_pct=20,
+            max_drawdown_pct=5,
+            trade_count=100,
+            fee_drag=1,
+        ),
+        warnings=["NOT_OUT_OF_SAMPLE"],
+    )
+
+    report_path = tmp_path / "report.json"
+    summary_path = tmp_path / "summary.md"
+    write_report(report, report_path, summary_path)
+
+    assert json.loads(report_path.read_text(encoding="utf-8"))["verdict"] == "CONDITIONAL"
+    assert "NOT_OUT_OF_SAMPLE" in render_summary(report)
+    assert "Verdict" in summary_path.read_text(encoding="utf-8")
 
 
 ```

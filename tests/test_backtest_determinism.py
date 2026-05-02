@@ -57,6 +57,9 @@ def test_backtest_writes_run_artifacts(tmp_path):
     assert (result.run_dir / "events.jsonl").exists()
     assert (result.run_dir / "report.json").exists()
     assert (result.run_dir / "summary.md").exists()
+    report = json.loads((result.run_dir / "report.json").read_text(encoding="utf-8"))
+    assert report["verdict"] == "INSUFFICIENT_DATA"
+    assert "TRADE_COUNT_BELOW_FLOOR" in report["warnings"]
 
 
 def test_backtest_rejects_strategy_mismatch(tmp_path):
