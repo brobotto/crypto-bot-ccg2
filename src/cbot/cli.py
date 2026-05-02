@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from datetime import UTC, datetime
+from pathlib import Path
 
 from cbot import __version__
+from cbot.market_data.binance import fetch_klines
+from cbot.market_data.store import MarketDataStore
+from cbot.market_data.validation import validate_candles
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,6 +45,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def parse_date(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def handle_fetch_data(args: argparse.Namespace) -> int:
+    candles = fetch_klines(args.symbol, args.timeframe, parse_date(args.start), parse_date(args.end))
+    warnings = validate_candles(candles, args.symbol, args.timeframe)
+    for warning in warnings:
+        print(f"data warning [{warning.code}]: {warning.message}")
+    path = MarketDataStore(Path("data/market")).write_candles(candles)
+    print(f"Wrote {len(candles)} candles to {path}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -48,10 +70,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
 
+    if args.command == "fetch-data":
+        return handle_fetch_data(args)
+
     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

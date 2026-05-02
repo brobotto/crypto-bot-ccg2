@@ -1,148 +1,465 @@
 # Context Pack
 
-Generated: 2026-05-02T18:20:12
+Generated: 2026-05-02T18:25:32
 Repo: `C:\Users\User\Documents\crypto-bot-ccg2`
 
 ## Current Task
 
-Slice 2 complete: event schema and logger verified
+Slice 3 complete: market data layer verified
 
 ## Git Status
 
 ```text
-M src/cbot/engine/events.py
-?? logs/schema/
-?? tests/test_events.py
+M pyproject.toml
+ M src/cbot/cli.py
+ M src/cbot/market_data/binance.py
+ M src/cbot/market_data/store.py
+ M src/cbot/market_data/validation.py
+ M src/cbot/types.py
+ M tests/test_cli.py
+?? tests/test_market_data_binance.py
+?? tests/test_market_data_store.py
+?? tests/test_market_data_validation.py
 ```
 
 ## Git Diff
 
 ```diff
-diff --git a/src/cbot/engine/events.py b/src/cbot/engine/events.py
-index ad990c6..d779e8c 100644
---- a/src/cbot/engine/events.py
-+++ b/src/cbot/engine/events.py
-@@ -1,2 +1,116 @@
--"""Structured event logging will be implemented in Slice 2."""
-+"""Structured event helpers and append-only JSONL logging."""
+diff --git a/pyproject.toml b/pyproject.toml
+index 5ce5ac6..5a0ed08 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -12,7 +12,6 @@ dependencies = [
+   "pandas>=2.2",
+   "pyarrow>=15",
+   "PyYAML>=6.0",
+-  "requests>=2.31",
+   "jsonschema>=4.21",
+ ]
+ 
+@@ -30,4 +29,3 @@ where = ["src"]
+ [tool.pytest.ini_options]
+ testpaths = ["tests"]
+ pythonpath = ["src"]
+-
+diff --git a/src/cbot/cli.py b/src/cbot/cli.py
+index 076ecf0..3a6134c 100644
+--- a/src/cbot/cli.py
++++ b/src/cbot/cli.py
+@@ -4,8 +4,13 @@ from __future__ import annotations
+ 
+ import argparse
+ from collections.abc import Sequence
++from datetime import UTC, datetime
++from pathlib import Path
+ 
+ from cbot import __version__
++from cbot.market_data.binance import fetch_klines
++from cbot.market_data.store import MarketDataStore
++from cbot.market_data.validation import validate_candles
+ 
+ 
+ def build_parser() -> argparse.ArgumentParser:
+@@ -40,6 +45,23 @@ def build_parser() -> argparse.ArgumentParser:
+     return parser
+ 
+ 
++def parse_date(value: str) -> datetime:
++    parsed = datetime.fromisoformat(value)
++    if parsed.tzinfo is None:
++        return parsed.replace(tzinfo=UTC)
++    return parsed.astimezone(UTC)
++
++
++def handle_fetch_data(args: argparse.Namespace) -> int:
++    candles = fetch_klines(args.symbol, args.timeframe, parse_date(args.start), parse_date(args.end))
++    warnings = validate_candles(candles, args.symbol, args.timeframe)
++    for warning in warnings:
++        print(f"data warning [{warning.code}]: {warning.message}")
++    path = MarketDataStore(Path("data/market")).write_candles(candles)
++    print(f"Wrote {len(candles)} candles to {path}")
++    return 0
++
++
+ def main(argv: Sequence[str] | None = None) -> int:
+     parser = build_parser()
+     args = parser.parse_args(argv)
+@@ -48,10 +70,12 @@ def main(argv: Sequence[str] | None = None) -> int:
+         parser.print_help()
+         return 0
+ 
++    if args.command == "fetch-data":
++        return handle_fetch_data(args)
++
+     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
+     return 0
+ 
+ 
+ if __name__ == "__main__":
+     raise SystemExit(main())
+-
+diff --git a/src/cbot/market_data/binance.py b/src/cbot/market_data/binance.py
+index 7f8f685..ba671a2 100644
+--- a/src/cbot/market_data/binance.py
++++ b/src/cbot/market_data/binance.py
+@@ -1,2 +1,79 @@
+-"""Public Binance market data fetching will be implemented in Slice 3."""
++"""Public Binance historical candle fetching."""
  
 +from __future__ import annotations
 +
 +import json
-+import re
-+from dataclasses import asdict, dataclass, field
 +from datetime import UTC, datetime
-+from pathlib import Path
-+from typing import Any
++from urllib.parse import urlencode
++from urllib.request import urlopen
++
++from cbot.types import Candle
++from cbot.market_data.validation import timeframe_delta
 +
 +
-+SCHEMA_VERSION = "1.0"
-+RUN_ID_PATTERN = re.compile(r"[^a-zA-Z0-9_.-]+")
++BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
 +
 +
-+def utc_now() -> datetime:
-+    return datetime.now(UTC)
-+
-+
-+def format_timestamp(value: datetime) -> str:
++def timestamp_ms(value: datetime) -> int:
 +    if value.tzinfo is None:
 +        value = value.replace(tzinfo=UTC)
-+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
++    return int(value.astimezone(UTC).timestamp() * 1000)
 +
 +
-+def slugify(value: str) -> str:
-+    cleaned = RUN_ID_PATTERN.sub("_", value.strip()).strip("_")
-+    return cleaned.lower() or "run"
++def build_klines_url(
++    symbol: str,
++    interval: str,
++    start: datetime,
++    end: datetime,
++    limit: int = 1000,
++) -> str:
++    query = urlencode(
++        {
++            "symbol": symbol,
++            "interval": interval,
++            "startTime": timestamp_ms(start),
++            "endTime": timestamp_ms(end),
++            "limit": limit,
++        }
++    )
++    return f"{BINANCE_KLINES_URL}?{query}"
 +
 +
-+def make_run_id(label: str, now: datetime | None = None) -> str:
-+    now = now or utc_now()
-+    stamp = now.astimezone(UTC).strftime("%Y%m%d_%H%M%S")
-+    return f"run_{stamp}_{slugify(label)}"
++def parse_kline(raw: list[object], symbol: str, timeframe: str) -> Candle:
++    return Candle(
++        symbol=symbol,
++        timeframe=timeframe,
++        timestamp=datetime.fromtimestamp(int(raw[0]) / 1000, UTC),
++        open=float(raw[1]),
++        high=float(raw[2]),
++        low=float(raw[3]),
++        close=float(raw[4]),
++        volume=float(raw[5]),
++    )
++
++
++def _fetch_page(symbol: str, interval: str, start: datetime, end: datetime) -> list[Candle]:
++    url = build_klines_url(symbol, interval, start, end)
++    with urlopen(url, timeout=30) as response:  # nosec B310 - fixed Binance public API URL.
++        payload = json.loads(response.read().decode("utf-8"))
++    return [parse_kline(item, symbol=symbol, timeframe=interval) for item in payload]
++
++
++def fetch_klines(symbol: str, interval: str, start: datetime, end: datetime) -> list[Candle]:
++    """Fetch Binance klines from the public REST API with page-sized requests."""
++
++    candles: list[Candle] = []
++    cursor = start
++    step = timeframe_delta(interval)
++    while cursor < end:
++        page = _fetch_page(symbol, interval, cursor, end)
++        if not page:
++            break
++        candles.extend(page)
++        next_cursor = page[-1].timestamp + step
++        if next_cursor <= cursor:
++            break
++        cursor = next_cursor
++        if len(page) < 1000:
++            break
++    return candles
+diff --git a/src/cbot/market_data/store.py b/src/cbot/market_data/store.py
+index 7775576..2db5084 100644
+--- a/src/cbot/market_data/store.py
++++ b/src/cbot/market_data/store.py
+@@ -1,2 +1,49 @@
+-"""Market data storage will be implemented in Slice 3."""
++"""Local market data persistence."""
+ 
++from __future__ import annotations
++
++import importlib.util
++from pathlib import Path
++
++from cbot.types import Candle
++
++
++def parquet_available() -> bool:
++    return importlib.util.find_spec("pyarrow") is not None
++
++
++class MarketDataStore:
++    def __init__(self, root: Path) -> None:
++        self.root = root
++
++    def partition_dir(self, symbol: str, timeframe: str) -> Path:
++        return self.root / f"symbol={symbol}" / f"timeframe={timeframe}"
++
++    def dataset_path(self, symbol: str, timeframe: str) -> Path:
++        return self.partition_dir(symbol, timeframe) / "candles.parquet"
++
++    def write_candles(self, candles: list[Candle]) -> Path:
++        if not candles:
++            raise ValueError("Cannot write an empty candle set.")
++        if not parquet_available():
++            raise RuntimeError("pyarrow is required to write Parquet market data.")
++
++        import pandas as pd
++
++        symbol = candles[0].symbol
++        timeframe = candles[0].timeframe
++        path = self.dataset_path(symbol, timeframe)
++        path.parent.mkdir(parents=True, exist_ok=True)
++        frame = pd.DataFrame([candle.to_record() for candle in candles])
++        frame.to_parquet(path, index=False)
++        return path
++
++    def read_candles(self, symbol: str, timeframe: str) -> list[Candle]:
++        if not parquet_available():
++            raise RuntimeError("pyarrow is required to read Parquet market data.")
++
++        import pandas as pd
++
++        path = self.dataset_path(symbol, timeframe)
++        frame = pd.read_parquet(path)
++        return [Candle.from_record(record) for record in frame.to_dict(orient="records")]
+diff --git a/src/cbot/market_data/validation.py b/src/cbot/market_data/validation.py
+index f6fa245..d790863 100644
+--- a/src/cbot/market_data/validation.py
++++ b/src/cbot/market_data/validation.py
+@@ -1,2 +1,96 @@
+-"""Market data validation will be implemented in Slice 3."""
++"""Validation helpers for historical OHLCV candles."""
+ 
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import timedelta
++
++from cbot.types import Candle
 +
 +
 +@dataclass(frozen=True)
-+class Event:
-+    event_type: str
-+    run_id: str
-+    sequence: int
-+    payload: dict[str, Any]
-+    timestamp: datetime = field(default_factory=utc_now)
-+    schema_version: str = SCHEMA_VERSION
-+
-+    def to_record(self) -> dict[str, Any]:
-+        record = asdict(self)
-+        record["timestamp"] = format_timestamp(self.timestamp)
-+        return record
-+
-+    def to_json(self) -> str:
-+        return json.dumps(self.to_record(), sort_keys=True, separators=(",", ":"))
++class DataValidationWarning:
++    code: str
++    message: str
++    timestamp: str | None = None
 +
 +
-+class JsonlEventWriter:
-+    """Append-only writer for one run's structured event stream."""
++def timeframe_delta(timeframe: str) -> timedelta:
++    unit = timeframe[-1]
++    amount = int(timeframe[:-1])
++    if unit == "m":
++        return timedelta(minutes=amount)
++    if unit == "h":
++        return timedelta(hours=amount)
++    if unit == "d":
++        return timedelta(days=amount)
++    raise ValueError(f"Unsupported timeframe: {timeframe}")
 +
-+    def __init__(self, path: Path) -> None:
-+        self.path = path
-+        self.path.parent.mkdir(parents=True, exist_ok=True)
-+        self._sequence = 0
 +
-+    @property
-+    def next_sequence(self) -> int:
-+        return self._sequence + 1
++def validate_candles(
++    candles: list[Candle],
++    expected_symbol: str | None = None,
++    expected_timeframe: str | None = None,
++) -> list[DataValidationWarning]:
++    warnings: list[DataValidationWarning] = []
++    if not candles:
++        return [DataValidationWarning("empty_dataset", "No candles were provided.")]
 +
-+    def write(self, event_type: str, run_id: str, payload: dict[str, Any]) -> Event:
-+        event = Event(
-+            event_type=event_type,
-+            run_id=run_id,
-+            sequence=self.next_sequence,
-+            payload=payload,
++    expected_step = timeframe_delta(expected_timeframe or candles[0].timeframe)
++    seen = set()
++    previous: Candle | None = None
++
++    for candle in candles:
++        timestamp = candle.timestamp.isoformat().replace("+00:00", "Z")
++
++        if expected_symbol and candle.symbol != expected_symbol:
++            warnings.append(
++                DataValidationWarning(
++                    "symbol_mismatch",
++                    f"Expected {expected_symbol}, got {candle.symbol}.",
++                    timestamp,
++                )
++            )
++
++        if expected_timeframe and candle.timeframe != expected_timeframe:
++            warnings.append(
++                DataValidationWarning(
++                    "timeframe_mismatch",
++                    f"Expected {expected_timeframe}, got {candle.timeframe}.",
++                    timestamp,
++                )
++            )
++
++        if candle.timestamp in seen:
++            warnings.append(DataValidationWarning("duplicate_candle", "Duplicate candle.", timestamp))
++        seen.add(candle.timestamp)
++
++        if previous:
++            if candle.timestamp < previous.timestamp:
++                warnings.append(
++                    DataValidationWarning("unordered_candle", "Candles are not chronological.", timestamp)
++                )
++            elif candle.timestamp - previous.timestamp != expected_step:
++                warnings.append(
++                    DataValidationWarning(
++                        "gap_or_overlap",
++                        f"Expected step {expected_step}, got {candle.timestamp - previous.timestamp}.",
++                        timestamp,
++                    )
++                )
++
++        if min(candle.open, candle.high, candle.low, candle.close) <= 0:
++            warnings.append(DataValidationWarning("non_positive_price", "OHLC prices must be positive.", timestamp))
++
++        if candle.volume < 0:
++            warnings.append(DataValidationWarning("negative_volume", "Volume must not be negative.", timestamp))
++
++        if candle.high < max(candle.open, candle.close, candle.low):
++            warnings.append(DataValidationWarning("invalid_high", "High is below another OHLC value.", timestamp))
++
++        if candle.low > min(candle.open, candle.close, candle.high):
++            warnings.append(DataValidationWarning("invalid_low", "Low is above another OHLC value.", timestamp))
++
++        previous = candle
++
++    return warnings
+diff --git a/src/cbot/types.py b/src/cbot/types.py
+index ee1b8e8..06ba394 100644
+--- a/src/cbot/types.py
++++ b/src/cbot/types.py
+@@ -1,2 +1,57 @@
+-"""Shared domain types will be implemented in a later slice."""
++"""Shared domain types for the research workbench."""
+ 
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import UTC, datetime
++
++
++def ensure_utc(value: datetime) -> datetime:
++    if value.tzinfo is None:
++        return value.replace(tzinfo=UTC)
++    return value.astimezone(UTC)
++
++
++@dataclass(frozen=True)
++class Candle:
++    symbol: str
++    timeframe: str
++    timestamp: datetime
++    open: float
++    high: float
++    low: float
++    close: float
++    volume: float
++
++    def __post_init__(self) -> None:
++        object.__setattr__(self, "timestamp", ensure_utc(self.timestamp))
++
++    def to_record(self) -> dict[str, object]:
++        return {
++            "symbol": self.symbol,
++            "timeframe": self.timeframe,
++            "timestamp": self.timestamp.isoformat().replace("+00:00", "Z"),
++            "open": self.open,
++            "high": self.high,
++            "low": self.low,
++            "close": self.close,
++            "volume": self.volume,
++        }
++
++    @classmethod
++    def from_record(cls, record: dict[str, object]) -> "Candle":
++        timestamp = record["timestamp"]
++        if isinstance(timestamp, str):
++            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
++        if not isinstance(timestamp, datetime):
++            raise TypeError("timestamp must be a datetime or ISO string")
++        return cls(
++            symbol=str(record["symbol"]),
++            timeframe=str(record["timeframe"]),
++            timestamp=timestamp,
++            open=float(record["open"]),
++            high=float(record["high"]),
++            low=float(record["low"]),
++            close=float(record["close"]),
++            volume=float(record["volume"]),
 +        )
-+        with self.path.open("a", encoding="utf-8") as handle:
-+            handle.write(event.to_json() + "\n")
-+        self._sequence = event.sequence
-+        return event
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 76da4fd..01c4c48 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -1,4 +1,6 @@
+ from cbot.cli import build_parser, main
++from cbot.types import Candle
++from datetime import UTC, datetime
+ 
+ 
+ def test_cli_help_exits_cleanly(capsys):
+@@ -16,3 +18,36 @@ def test_cli_has_expected_commands():
+     commands = set(command_actions[0].choices)
+     assert {"fetch-data", "backtest", "compare", "sensitivity", "report"} <= commands
+ 
 +
++def test_fetch_data_command_uses_market_data_layer(monkeypatch, capsys):
++    candle = Candle(
++        symbol="BTCUSDT",
++        timeframe="1h",
++        timestamp=datetime(2024, 1, 1, tzinfo=UTC),
++        open=100,
++        high=110,
++        low=90,
++        close=105,
++        volume=10,
++    )
 +
-+@dataclass(frozen=True)
-+class RunDirectory:
-+    run_id: str
-+    path: Path
++    monkeypatch.setattr("cbot.cli.fetch_klines", lambda *args: [candle])
++    monkeypatch.setattr("cbot.cli.MarketDataStore.write_candles", lambda self, candles: "fake.parquet")
 +
-+    @property
-+    def events_path(self) -> Path:
-+        return self.path / "events.jsonl"
++    result = main(
++        [
++            "fetch-data",
++            "--symbol",
++            "BTCUSDT",
++            "--timeframe",
++            "1h",
++            "--start",
++            "2024-01-01",
++            "--end",
++            "2024-01-02",
++        ]
++    )
 +
-+    @property
-+    def config_path(self) -> Path:
-+        return self.path / "config.resolved.json"
-+
-+    @property
-+    def strategy_meta_path(self) -> Path:
-+        return self.path / "strategy.meta.json"
-+
-+    @property
-+    def report_path(self) -> Path:
-+        return self.path / "report.json"
-+
-+    @property
-+    def summary_path(self) -> Path:
-+        return self.path / "summary.md"
-+
-+
-+def create_run_directory(root: Path, label: str, now: datetime | None = None) -> RunDirectory:
-+    run_id = make_run_id(label, now)
-+    path = root / run_id
-+    path.mkdir(parents=True, exist_ok=False)
-+    return RunDirectory(run_id=run_id, path=path)
-+
-+
-+def write_json(path: Path, value: dict[str, Any]) -> None:
-+    path.parent.mkdir(parents=True, exist_ok=True)
-+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
++    captured = capsys.readouterr()
++    assert result == 0
++    assert "Wrote 1 candles to fake.parquet" in captured.out
 
 [stderr]
-warning: in the working copy of 'src/cbot/engine/events.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'pyproject.toml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/market_data/binance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/market_data/store.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/market_data/validation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/types.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/test_cli.py', LF will be replaced by CRLF the next time Git touches it
 ```
 
 ## File Tree
@@ -209,6 +526,9 @@ warning: in the working copy of 'src/cbot/engine/events.py', LF will be replaced
 - src\cbot\types.py
 - tests\test_cli.py
 - tests\test_events.py
+- tests\test_market_data_binance.py
+- tests\test_market_data_store.py
+- tests\test_market_data_validation.py
 - tests\test_package.py
 - tools\make_context.py
 
@@ -3160,7 +3480,6 @@ dependencies = [
   "pandas>=2.2",
   "pyarrow>=15",
   "PyYAML>=6.0",
-  "requests>=2.31",
   "jsonschema>=4.21",
 ]
 
@@ -3178,7 +3497,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-
 
 ```
 
@@ -3221,7 +3539,7 @@ The generated file goes to `reviews/latest/context-pack.md`.
 ### reviews\latest\context-pack.md
 
 ```text
-[Skipped: file is 425767 bytes, above 24000 byte limit]
+[Skipped: file is 126426 bytes, above 24000 byte limit]
 ```
 
 ### src\cbot\__init__.py
@@ -3245,8 +3563,13 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from datetime import UTC, datetime
+from pathlib import Path
 
 from cbot import __version__
+from cbot.market_data.binance import fetch_klines
+from cbot.market_data.store import MarketDataStore
+from cbot.market_data.validation import validate_candles
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -3281,6 +3604,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def parse_date(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def handle_fetch_data(args: argparse.Namespace) -> int:
+    candles = fetch_klines(args.symbol, args.timeframe, parse_date(args.start), parse_date(args.end))
+    warnings = validate_candles(candles, args.symbol, args.timeframe)
+    for warning in warnings:
+        print(f"data warning [{warning.code}]: {warning.message}")
+    path = MarketDataStore(Path("data/market")).write_candles(candles)
+    print(f"Wrote {len(candles)} candles to {path}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -3289,13 +3629,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
 
+    if args.command == "fetch-data":
+        return handle_fetch_data(args)
+
     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
 ```
 
@@ -3472,24 +3814,242 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
 ### src\cbot\market_data\binance.py
 
 ```text
-"""Public Binance market data fetching will be implemented in Slice 3."""
+"""Public Binance historical candle fetching."""
 
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from urllib.parse import urlencode
+from urllib.request import urlopen
+
+from cbot.types import Candle
+from cbot.market_data.validation import timeframe_delta
+
+
+BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+
+
+def timestamp_ms(value: datetime) -> int:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return int(value.astimezone(UTC).timestamp() * 1000)
+
+
+def build_klines_url(
+    symbol: str,
+    interval: str,
+    start: datetime,
+    end: datetime,
+    limit: int = 1000,
+) -> str:
+    query = urlencode(
+        {
+            "symbol": symbol,
+            "interval": interval,
+            "startTime": timestamp_ms(start),
+            "endTime": timestamp_ms(end),
+            "limit": limit,
+        }
+    )
+    return f"{BINANCE_KLINES_URL}?{query}"
+
+
+def parse_kline(raw: list[object], symbol: str, timeframe: str) -> Candle:
+    return Candle(
+        symbol=symbol,
+        timeframe=timeframe,
+        timestamp=datetime.fromtimestamp(int(raw[0]) / 1000, UTC),
+        open=float(raw[1]),
+        high=float(raw[2]),
+        low=float(raw[3]),
+        close=float(raw[4]),
+        volume=float(raw[5]),
+    )
+
+
+def _fetch_page(symbol: str, interval: str, start: datetime, end: datetime) -> list[Candle]:
+    url = build_klines_url(symbol, interval, start, end)
+    with urlopen(url, timeout=30) as response:  # nosec B310 - fixed Binance public API URL.
+        payload = json.loads(response.read().decode("utf-8"))
+    return [parse_kline(item, symbol=symbol, timeframe=interval) for item in payload]
+
+
+def fetch_klines(symbol: str, interval: str, start: datetime, end: datetime) -> list[Candle]:
+    """Fetch Binance klines from the public REST API with page-sized requests."""
+
+    candles: list[Candle] = []
+    cursor = start
+    step = timeframe_delta(interval)
+    while cursor < end:
+        page = _fetch_page(symbol, interval, cursor, end)
+        if not page:
+            break
+        candles.extend(page)
+        next_cursor = page[-1].timestamp + step
+        if next_cursor <= cursor:
+            break
+        cursor = next_cursor
+        if len(page) < 1000:
+            break
+    return candles
 
 ```
 
 ### src\cbot\market_data\store.py
 
 ```text
-"""Market data storage will be implemented in Slice 3."""
+"""Local market data persistence."""
 
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+from cbot.types import Candle
+
+
+def parquet_available() -> bool:
+    return importlib.util.find_spec("pyarrow") is not None
+
+
+class MarketDataStore:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def partition_dir(self, symbol: str, timeframe: str) -> Path:
+        return self.root / f"symbol={symbol}" / f"timeframe={timeframe}"
+
+    def dataset_path(self, symbol: str, timeframe: str) -> Path:
+        return self.partition_dir(symbol, timeframe) / "candles.parquet"
+
+    def write_candles(self, candles: list[Candle]) -> Path:
+        if not candles:
+            raise ValueError("Cannot write an empty candle set.")
+        if not parquet_available():
+            raise RuntimeError("pyarrow is required to write Parquet market data.")
+
+        import pandas as pd
+
+        symbol = candles[0].symbol
+        timeframe = candles[0].timeframe
+        path = self.dataset_path(symbol, timeframe)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        frame = pd.DataFrame([candle.to_record() for candle in candles])
+        frame.to_parquet(path, index=False)
+        return path
+
+    def read_candles(self, symbol: str, timeframe: str) -> list[Candle]:
+        if not parquet_available():
+            raise RuntimeError("pyarrow is required to read Parquet market data.")
+
+        import pandas as pd
+
+        path = self.dataset_path(symbol, timeframe)
+        frame = pd.read_parquet(path)
+        return [Candle.from_record(record) for record in frame.to_dict(orient="records")]
 
 ```
 
 ### src\cbot\market_data\validation.py
 
 ```text
-"""Market data validation will be implemented in Slice 3."""
+"""Validation helpers for historical OHLCV candles."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import timedelta
+
+from cbot.types import Candle
+
+
+@dataclass(frozen=True)
+class DataValidationWarning:
+    code: str
+    message: str
+    timestamp: str | None = None
+
+
+def timeframe_delta(timeframe: str) -> timedelta:
+    unit = timeframe[-1]
+    amount = int(timeframe[:-1])
+    if unit == "m":
+        return timedelta(minutes=amount)
+    if unit == "h":
+        return timedelta(hours=amount)
+    if unit == "d":
+        return timedelta(days=amount)
+    raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+
+def validate_candles(
+    candles: list[Candle],
+    expected_symbol: str | None = None,
+    expected_timeframe: str | None = None,
+) -> list[DataValidationWarning]:
+    warnings: list[DataValidationWarning] = []
+    if not candles:
+        return [DataValidationWarning("empty_dataset", "No candles were provided.")]
+
+    expected_step = timeframe_delta(expected_timeframe or candles[0].timeframe)
+    seen = set()
+    previous: Candle | None = None
+
+    for candle in candles:
+        timestamp = candle.timestamp.isoformat().replace("+00:00", "Z")
+
+        if expected_symbol and candle.symbol != expected_symbol:
+            warnings.append(
+                DataValidationWarning(
+                    "symbol_mismatch",
+                    f"Expected {expected_symbol}, got {candle.symbol}.",
+                    timestamp,
+                )
+            )
+
+        if expected_timeframe and candle.timeframe != expected_timeframe:
+            warnings.append(
+                DataValidationWarning(
+                    "timeframe_mismatch",
+                    f"Expected {expected_timeframe}, got {candle.timeframe}.",
+                    timestamp,
+                )
+            )
+
+        if candle.timestamp in seen:
+            warnings.append(DataValidationWarning("duplicate_candle", "Duplicate candle.", timestamp))
+        seen.add(candle.timestamp)
+
+        if previous:
+            if candle.timestamp < previous.timestamp:
+                warnings.append(
+                    DataValidationWarning("unordered_candle", "Candles are not chronological.", timestamp)
+                )
+            elif candle.timestamp - previous.timestamp != expected_step:
+                warnings.append(
+                    DataValidationWarning(
+                        "gap_or_overlap",
+                        f"Expected step {expected_step}, got {candle.timestamp - previous.timestamp}.",
+                        timestamp,
+                    )
+                )
+
+        if min(candle.open, candle.high, candle.low, candle.close) <= 0:
+            warnings.append(DataValidationWarning("non_positive_price", "OHLC prices must be positive.", timestamp))
+
+        if candle.volume < 0:
+            warnings.append(DataValidationWarning("negative_volume", "Volume must not be negative.", timestamp))
+
+        if candle.high < max(candle.open, candle.close, candle.low):
+            warnings.append(DataValidationWarning("invalid_high", "High is below another OHLC value.", timestamp))
+
+        if candle.low > min(candle.open, candle.close, candle.high):
+            warnings.append(DataValidationWarning("invalid_low", "Low is above another OHLC value.", timestamp))
+
+        previous = candle
+
+    return warnings
 
 ```
 
@@ -3576,8 +4136,63 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
 ### src\cbot\types.py
 
 ```text
-"""Shared domain types will be implemented in a later slice."""
+"""Shared domain types for the research workbench."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+
+def ensure_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+@dataclass(frozen=True)
+class Candle:
+    symbol: str
+    timeframe: str
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "timestamp", ensure_utc(self.timestamp))
+
+    def to_record(self) -> dict[str, object]:
+        return {
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+            "timestamp": self.timestamp.isoformat().replace("+00:00", "Z"),
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "volume": self.volume,
+        }
+
+    @classmethod
+    def from_record(cls, record: dict[str, object]) -> "Candle":
+        timestamp = record["timestamp"]
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if not isinstance(timestamp, datetime):
+            raise TypeError("timestamp must be a datetime or ISO string")
+        return cls(
+            symbol=str(record["symbol"]),
+            timeframe=str(record["timeframe"]),
+            timestamp=timestamp,
+            open=float(record["open"]),
+            high=float(record["high"]),
+            low=float(record["low"]),
+            close=float(record["close"]),
+            volume=float(record["volume"]),
+        )
 
 ```
 
@@ -3585,6 +4200,8 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
 
 ```text
 from cbot.cli import build_parser, main
+from cbot.types import Candle
+from datetime import UTC, datetime
 
 
 def test_cli_help_exits_cleanly(capsys):
@@ -3602,6 +4219,39 @@ def test_cli_has_expected_commands():
     commands = set(command_actions[0].choices)
     assert {"fetch-data", "backtest", "compare", "sensitivity", "report"} <= commands
 
+
+def test_fetch_data_command_uses_market_data_layer(monkeypatch, capsys):
+    candle = Candle(
+        symbol="BTCUSDT",
+        timeframe="1h",
+        timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+        open=100,
+        high=110,
+        low=90,
+        close=105,
+        volume=10,
+    )
+
+    monkeypatch.setattr("cbot.cli.fetch_klines", lambda *args: [candle])
+    monkeypatch.setattr("cbot.cli.MarketDataStore.write_candles", lambda self, candles: "fake.parquet")
+
+    result = main(
+        [
+            "fetch-data",
+            "--symbol",
+            "BTCUSDT",
+            "--timeframe",
+            "1h",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-01-02",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Wrote 1 candles to fake.parquet" in captured.out
 
 ```
 
@@ -3785,6 +4435,164 @@ def test_core_event_schemas_accept_minimal_valid_records():
 
     for schema_name, record in records:
         validate_event(record, schema_name, root)
+
+```
+
+### tests\test_market_data_binance.py
+
+```text
+from datetime import UTC, datetime
+
+from cbot.market_data.binance import build_klines_url, parse_kline
+
+
+def test_build_klines_url_contains_expected_query():
+    url = build_klines_url(
+        "BTCUSDT",
+        "1h",
+        datetime(2024, 1, 1, tzinfo=UTC),
+        datetime(2024, 1, 2, tzinfo=UTC),
+    )
+
+    assert "symbol=BTCUSDT" in url
+    assert "interval=1h" in url
+    assert "startTime=1704067200000" in url
+    assert "endTime=1704153600000" in url
+
+
+def test_parse_kline_returns_candle():
+    raw = [
+        1704067200000,
+        "100.0",
+        "110.0",
+        "90.0",
+        "105.0",
+        "123.45",
+        1704070799999,
+        "0",
+        1,
+        "0",
+        "0",
+        "0",
+    ]
+
+    candle = parse_kline(raw, "BTCUSDT", "1h")
+
+    assert candle.symbol == "BTCUSDT"
+    assert candle.timeframe == "1h"
+    assert candle.timestamp == datetime(2024, 1, 1, tzinfo=UTC)
+    assert candle.close == 105.0
+    assert candle.volume == 123.45
+
+
+```
+
+### tests\test_market_data_store.py
+
+```text
+from datetime import UTC, datetime
+
+import pytest
+
+from cbot.market_data.store import MarketDataStore, parquet_available
+from cbot.types import Candle
+
+
+def sample_candles():
+    return [
+        Candle(
+            symbol="BTCUSDT",
+            timeframe="1h",
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+            open=100,
+            high=110,
+            low=90,
+            close=105,
+            volume=10,
+        )
+    ]
+
+
+def test_store_paths_are_partitioned(tmp_path):
+    store = MarketDataStore(tmp_path)
+    assert store.dataset_path("BTCUSDT", "1h") == tmp_path / "symbol=BTCUSDT" / "timeframe=1h" / "candles.parquet"
+
+
+def test_write_empty_candles_fails(tmp_path):
+    store = MarketDataStore(tmp_path)
+    with pytest.raises(ValueError):
+        store.write_candles([])
+
+
+def test_parquet_roundtrip_or_clear_dependency_error(tmp_path):
+    store = MarketDataStore(tmp_path)
+    candles = sample_candles()
+
+    if not parquet_available():
+        with pytest.raises(RuntimeError, match="pyarrow"):
+            store.write_candles(candles)
+        return
+
+    path = store.write_candles(candles)
+    loaded = store.read_candles("BTCUSDT", "1h")
+
+    assert path.exists()
+    assert loaded == candles
+
+
+```
+
+### tests\test_market_data_validation.py
+
+```text
+from datetime import UTC, datetime, timedelta
+
+from cbot.market_data.validation import timeframe_delta, validate_candles
+from cbot.types import Candle
+
+
+def candle_at(offset_hours=0, **overrides):
+    values = {
+        "symbol": "BTCUSDT",
+        "timeframe": "1h",
+        "timestamp": datetime(2024, 1, 1, tzinfo=UTC) + timedelta(hours=offset_hours),
+        "open": 100.0,
+        "high": 110.0,
+        "low": 90.0,
+        "close": 105.0,
+        "volume": 10.0,
+    }
+    values.update(overrides)
+    return Candle(**values)
+
+
+def test_timeframe_delta_supports_expected_units():
+    assert timeframe_delta("1m") == timedelta(minutes=1)
+    assert timeframe_delta("1h") == timedelta(hours=1)
+    assert timeframe_delta("1d") == timedelta(days=1)
+
+
+def test_validate_valid_candles_has_no_warnings():
+    warnings = validate_candles([candle_at(0), candle_at(1)], "BTCUSDT", "1h")
+    assert warnings == []
+
+
+def test_validate_candles_finds_duplicate_and_gap():
+    warnings = validate_candles([candle_at(0), candle_at(0), candle_at(2)], "BTCUSDT", "1h")
+    codes = {warning.code for warning in warnings}
+    assert "duplicate_candle" in codes
+    assert "gap_or_overlap" in codes
+
+
+def test_validate_candles_finds_bad_ohlc_and_volume():
+    warnings = validate_candles(
+        [candle_at(high=80, low=120, volume=-1)],
+        "BTCUSDT",
+        "1h",
+    )
+    codes = {warning.code for warning in warnings}
+    assert {"invalid_high", "invalid_low", "negative_volume"} <= codes
+
 
 ```
 
