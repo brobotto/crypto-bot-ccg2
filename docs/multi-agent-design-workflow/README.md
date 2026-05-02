@@ -30,6 +30,7 @@ The workflow is round-based. Each round produces a short decision record that ca
    - Final decision: [Round 3 Final Architecture](./round-3-final-architecture.md).
 7. `Round 4 - Implementation Plan`
    - Convert the selected design into files, tasks, tests, and rollout steps.
+   - Start from [Round 4 Implementation Plan](./round-4-implementation-plan.md).
 
 ## Operating Rules
 

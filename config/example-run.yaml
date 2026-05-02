@@ -1,0 +1,33 @@
+run:
+  label: sma_cross_smoke
+  sample_label: IN_SAMPLE
+  train_start: "2021-01-01"
+  train_end: "2023-12-31"
+  test_start: "2024-01-01"
+  test_end: "2024-12-31"
+
+market:
+  exchange: binance
+  symbol: BTCUSDT
+  quote: USDT
+  timeframe: 1h
+
+strategy:
+  name: sma_cross_v1
+  version: "1.0.0"
+  parameters:
+    fast_window: 20
+    slow_window: 50
+
+portfolio:
+  initial_cash: 10000
+  base_asset: BTC
+  quote_asset: USDT
+
+simulation:
+  fee_bps: 10
+  slippage_bps: 20
+  max_drawdown_pct: 20
+  min_trade_count: 30
+  drawdown_mode: flag_only
+
