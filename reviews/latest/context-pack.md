@@ -1,465 +1,303 @@
 # Context Pack
 
-Generated: 2026-05-02T18:25:32
+Generated: 2026-05-02T18:28:42
 Repo: `C:\Users\User\Documents\crypto-bot-ccg2`
 
 ## Current Task
 
-Slice 3 complete: market data layer verified
+Slice 4 complete: strategy protocol and baselines verified
 
 ## Git Status
 
 ```text
-M pyproject.toml
- M src/cbot/cli.py
- M src/cbot/market_data/binance.py
- M src/cbot/market_data/store.py
- M src/cbot/market_data/validation.py
+M src/cbot/strategies/__init__.py
+ M src/cbot/strategies/baselines.py
+ M src/cbot/strategies/protocol.py
+ M src/cbot/strategies/sma_cross_v1.py
  M src/cbot/types.py
- M tests/test_cli.py
-?? tests/test_market_data_binance.py
-?? tests/test_market_data_store.py
-?? tests/test_market_data_validation.py
+?? tests/test_strategies.py
+?? tests/test_strategy_protocol.py
 ```
 
 ## Git Diff
 
 ```diff
-diff --git a/pyproject.toml b/pyproject.toml
-index 5ce5ac6..5a0ed08 100644
---- a/pyproject.toml
-+++ b/pyproject.toml
-@@ -12,7 +12,6 @@ dependencies = [
-   "pandas>=2.2",
-   "pyarrow>=15",
-   "PyYAML>=6.0",
--  "requests>=2.31",
-   "jsonschema>=4.21",
- ]
+diff --git a/src/cbot/strategies/__init__.py b/src/cbot/strategies/__init__.py
+index 0aa3ccf..1f57ba5 100644
+--- a/src/cbot/strategies/__init__.py
++++ b/src/cbot/strategies/__init__.py
+@@ -1,2 +1,17 @@
+ """Strategy contracts and baseline strategies."""
  
-@@ -30,4 +29,3 @@ where = ["src"]
- [tool.pytest.ini_options]
- testpaths = ["tests"]
- pythonpath = ["src"]
--
-diff --git a/src/cbot/cli.py b/src/cbot/cli.py
-index 076ecf0..3a6134c 100644
---- a/src/cbot/cli.py
-+++ b/src/cbot/cli.py
-@@ -4,8 +4,13 @@ from __future__ import annotations
- 
- import argparse
- from collections.abc import Sequence
-+from datetime import UTC, datetime
-+from pathlib import Path
- 
- from cbot import __version__
-+from cbot.market_data.binance import fetch_klines
-+from cbot.market_data.store import MarketDataStore
-+from cbot.market_data.validation import validate_candles
- 
- 
- def build_parser() -> argparse.ArgumentParser:
-@@ -40,6 +45,23 @@ def build_parser() -> argparse.ArgumentParser:
-     return parser
- 
- 
-+def parse_date(value: str) -> datetime:
-+    parsed = datetime.fromisoformat(value)
-+    if parsed.tzinfo is None:
-+        return parsed.replace(tzinfo=UTC)
-+    return parsed.astimezone(UTC)
++from cbot.strategies.baselines import BuyAndHoldStrategy, CashNoTradeStrategy
++from cbot.strategies.sma_cross_v1 import SmaCrossV1Strategy
 +
++STRATEGIES = {
++    "cash_no_trade": CashNoTradeStrategy,
++    "buy_and_hold": BuyAndHoldStrategy,
++    "sma_cross_v1": SmaCrossV1Strategy,
++}
 +
-+def handle_fetch_data(args: argparse.Namespace) -> int:
-+    candles = fetch_klines(args.symbol, args.timeframe, parse_date(args.start), parse_date(args.end))
-+    warnings = validate_candles(candles, args.symbol, args.timeframe)
-+    for warning in warnings:
-+        print(f"data warning [{warning.code}]: {warning.message}")
-+    path = MarketDataStore(Path("data/market")).write_candles(candles)
-+    print(f"Wrote {len(candles)} candles to {path}")
-+    return 0
-+
-+
- def main(argv: Sequence[str] | None = None) -> int:
-     parser = build_parser()
-     args = parser.parse_args(argv)
-@@ -48,10 +70,12 @@ def main(argv: Sequence[str] | None = None) -> int:
-         parser.print_help()
-         return 0
- 
-+    if args.command == "fetch-data":
-+        return handle_fetch_data(args)
-+
-     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
-     return 0
- 
- 
- if __name__ == "__main__":
-     raise SystemExit(main())
--
-diff --git a/src/cbot/market_data/binance.py b/src/cbot/market_data/binance.py
-index 7f8f685..ba671a2 100644
---- a/src/cbot/market_data/binance.py
-+++ b/src/cbot/market_data/binance.py
-@@ -1,2 +1,79 @@
--"""Public Binance market data fetching will be implemented in Slice 3."""
-+"""Public Binance historical candle fetching."""
++__all__ = [
++    "BuyAndHoldStrategy",
++    "CashNoTradeStrategy",
++    "SmaCrossV1Strategy",
++    "STRATEGIES",
++]
+diff --git a/src/cbot/strategies/baselines.py b/src/cbot/strategies/baselines.py
+index ee0b282..14a1ad1 100644
+--- a/src/cbot/strategies/baselines.py
++++ b/src/cbot/strategies/baselines.py
+@@ -1,2 +1,48 @@
+-"""Cash and buy-and-hold baselines will be implemented in Slice 4."""
++"""Baseline strategies and benchmarks."""
  
 +from __future__ import annotations
 +
-+import json
-+from datetime import UTC, datetime
-+from urllib.parse import urlencode
-+from urllib.request import urlopen
++from typing import Any, Mapping
 +
-+from cbot.types import Candle
-+from cbot.market_data.validation import timeframe_delta
++from cbot.strategies.protocol import BaseStrategy, StrategyMetadata
++from cbot.types import Candle, Signal, SignalAction
 +
 +
-+BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
-+
-+
-+def timestamp_ms(value: datetime) -> int:
-+    if value.tzinfo is None:
-+        value = value.replace(tzinfo=UTC)
-+    return int(value.astimezone(UTC).timestamp() * 1000)
-+
-+
-+def build_klines_url(
-+    symbol: str,
-+    interval: str,
-+    start: datetime,
-+    end: datetime,
-+    limit: int = 1000,
-+) -> str:
-+    query = urlencode(
-+        {
-+            "symbol": symbol,
-+            "interval": interval,
-+            "startTime": timestamp_ms(start),
-+            "endTime": timestamp_ms(end),
-+            "limit": limit,
-+        }
-+    )
-+    return f"{BINANCE_KLINES_URL}?{query}"
-+
-+
-+def parse_kline(raw: list[object], symbol: str, timeframe: str) -> Candle:
-+    return Candle(
-+        symbol=symbol,
-+        timeframe=timeframe,
-+        timestamp=datetime.fromtimestamp(int(raw[0]) / 1000, UTC),
-+        open=float(raw[1]),
-+        high=float(raw[2]),
-+        low=float(raw[3]),
-+        close=float(raw[4]),
-+        volume=float(raw[5]),
++class CashNoTradeStrategy(BaseStrategy):
++    metadata = StrategyMetadata(
++        name="cash_no_trade",
++        version="1.0.0",
++        hypothesis="Holding cash is the sanity baseline for active strategy evaluation.",
 +    )
 +
++    def on_candle(
++        self,
++        history: tuple[Candle, ...],
++        portfolio_view: Mapping[str, Any],
++        parameters: Mapping[str, Any],
++    ) -> Signal:
++        return Signal.hold("cash baseline never trades")
 +
-+def _fetch_page(symbol: str, interval: str, start: datetime, end: datetime) -> list[Candle]:
-+    url = build_klines_url(symbol, interval, start, end)
-+    with urlopen(url, timeout=30) as response:  # nosec B310 - fixed Binance public API URL.
-+        payload = json.loads(response.read().decode("utf-8"))
-+    return [parse_kline(item, symbol=symbol, timeframe=interval) for item in payload]
 +
++class BuyAndHoldStrategy(BaseStrategy):
++    metadata = StrategyMetadata(
++        name="buy_and_hold",
++        version="1.0.0",
++        hypothesis="Buying once at the start and holding is the market exposure benchmark.",
++        warmup_candles=1,
++    )
 +
-+def fetch_klines(symbol: str, interval: str, start: datetime, end: datetime) -> list[Candle]:
-+    """Fetch Binance klines from the public REST API with page-sized requests."""
-+
-+    candles: list[Candle] = []
-+    cursor = start
-+    step = timeframe_delta(interval)
-+    while cursor < end:
-+        page = _fetch_page(symbol, interval, cursor, end)
-+        if not page:
-+            break
-+        candles.extend(page)
-+        next_cursor = page[-1].timestamp + step
-+        if next_cursor <= cursor:
-+            break
-+        cursor = next_cursor
-+        if len(page) < 1000:
-+            break
-+    return candles
-diff --git a/src/cbot/market_data/store.py b/src/cbot/market_data/store.py
-index 7775576..2db5084 100644
---- a/src/cbot/market_data/store.py
-+++ b/src/cbot/market_data/store.py
-@@ -1,2 +1,49 @@
--"""Market data storage will be implemented in Slice 3."""
-+"""Local market data persistence."""
++    def on_candle(
++        self,
++        history: tuple[Candle, ...],
++        portfolio_view: Mapping[str, Any],
++        parameters: Mapping[str, Any],
++    ) -> Signal:
++        has_position = bool(portfolio_view.get("has_position", False))
++        if not has_position:
++            return Signal(
++                action=SignalAction.BUY,
++                reason="enter buy-and-hold benchmark",
++                target_fraction=1.0,
++            )
++        return Signal.hold("already holding benchmark position")
+diff --git a/src/cbot/strategies/protocol.py b/src/cbot/strategies/protocol.py
+index 9e3e0ff..d93ae52 100644
+--- a/src/cbot/strategies/protocol.py
++++ b/src/cbot/strategies/protocol.py
+@@ -1,2 +1,63 @@
+-"""Strategy protocol will be implemented in Slice 4."""
++"""Strategy protocol and metadata contracts."""
  
 +from __future__ import annotations
 +
-+import importlib.util
-+from pathlib import Path
++from dataclasses import dataclass, field
++from typing import Any, Mapping, Protocol, runtime_checkable
 +
-+from cbot.types import Candle
-+
-+
-+def parquet_available() -> bool:
-+    return importlib.util.find_spec("pyarrow") is not None
-+
-+
-+class MarketDataStore:
-+    def __init__(self, root: Path) -> None:
-+        self.root = root
-+
-+    def partition_dir(self, symbol: str, timeframe: str) -> Path:
-+        return self.root / f"symbol={symbol}" / f"timeframe={timeframe}"
-+
-+    def dataset_path(self, symbol: str, timeframe: str) -> Path:
-+        return self.partition_dir(symbol, timeframe) / "candles.parquet"
-+
-+    def write_candles(self, candles: list[Candle]) -> Path:
-+        if not candles:
-+            raise ValueError("Cannot write an empty candle set.")
-+        if not parquet_available():
-+            raise RuntimeError("pyarrow is required to write Parquet market data.")
-+
-+        import pandas as pd
-+
-+        symbol = candles[0].symbol
-+        timeframe = candles[0].timeframe
-+        path = self.dataset_path(symbol, timeframe)
-+        path.parent.mkdir(parents=True, exist_ok=True)
-+        frame = pd.DataFrame([candle.to_record() for candle in candles])
-+        frame.to_parquet(path, index=False)
-+        return path
-+
-+    def read_candles(self, symbol: str, timeframe: str) -> list[Candle]:
-+        if not parquet_available():
-+            raise RuntimeError("pyarrow is required to read Parquet market data.")
-+
-+        import pandas as pd
-+
-+        path = self.dataset_path(symbol, timeframe)
-+        frame = pd.read_parquet(path)
-+        return [Candle.from_record(record) for record in frame.to_dict(orient="records")]
-diff --git a/src/cbot/market_data/validation.py b/src/cbot/market_data/validation.py
-index f6fa245..d790863 100644
---- a/src/cbot/market_data/validation.py
-+++ b/src/cbot/market_data/validation.py
-@@ -1,2 +1,96 @@
--"""Market data validation will be implemented in Slice 3."""
-+"""Validation helpers for historical OHLCV candles."""
- 
-+from __future__ import annotations
-+
-+from dataclasses import dataclass
-+from datetime import timedelta
-+
-+from cbot.types import Candle
++from cbot.types import Candle, Signal
 +
 +
 +@dataclass(frozen=True)
-+class DataValidationWarning:
-+    code: str
-+    message: str
-+    timestamp: str | None = None
-+
-+
-+def timeframe_delta(timeframe: str) -> timedelta:
-+    unit = timeframe[-1]
-+    amount = int(timeframe[:-1])
-+    if unit == "m":
-+        return timedelta(minutes=amount)
-+    if unit == "h":
-+        return timedelta(hours=amount)
-+    if unit == "d":
-+        return timedelta(days=amount)
-+    raise ValueError(f"Unsupported timeframe: {timeframe}")
-+
-+
-+def validate_candles(
-+    candles: list[Candle],
-+    expected_symbol: str | None = None,
-+    expected_timeframe: str | None = None,
-+) -> list[DataValidationWarning]:
-+    warnings: list[DataValidationWarning] = []
-+    if not candles:
-+        return [DataValidationWarning("empty_dataset", "No candles were provided.")]
-+
-+    expected_step = timeframe_delta(expected_timeframe or candles[0].timeframe)
-+    seen = set()
-+    previous: Candle | None = None
-+
-+    for candle in candles:
-+        timestamp = candle.timestamp.isoformat().replace("+00:00", "Z")
-+
-+        if expected_symbol and candle.symbol != expected_symbol:
-+            warnings.append(
-+                DataValidationWarning(
-+                    "symbol_mismatch",
-+                    f"Expected {expected_symbol}, got {candle.symbol}.",
-+                    timestamp,
-+                )
-+            )
-+
-+        if expected_timeframe and candle.timeframe != expected_timeframe:
-+            warnings.append(
-+                DataValidationWarning(
-+                    "timeframe_mismatch",
-+                    f"Expected {expected_timeframe}, got {candle.timeframe}.",
-+                    timestamp,
-+                )
-+            )
-+
-+        if candle.timestamp in seen:
-+            warnings.append(DataValidationWarning("duplicate_candle", "Duplicate candle.", timestamp))
-+        seen.add(candle.timestamp)
-+
-+        if previous:
-+            if candle.timestamp < previous.timestamp:
-+                warnings.append(
-+                    DataValidationWarning("unordered_candle", "Candles are not chronological.", timestamp)
-+                )
-+            elif candle.timestamp - previous.timestamp != expected_step:
-+                warnings.append(
-+                    DataValidationWarning(
-+                        "gap_or_overlap",
-+                        f"Expected step {expected_step}, got {candle.timestamp - previous.timestamp}.",
-+                        timestamp,
-+                    )
-+                )
-+
-+        if min(candle.open, candle.high, candle.low, candle.close) <= 0:
-+            warnings.append(DataValidationWarning("non_positive_price", "OHLC prices must be positive.", timestamp))
-+
-+        if candle.volume < 0:
-+            warnings.append(DataValidationWarning("negative_volume", "Volume must not be negative.", timestamp))
-+
-+        if candle.high < max(candle.open, candle.close, candle.low):
-+            warnings.append(DataValidationWarning("invalid_high", "High is below another OHLC value.", timestamp))
-+
-+        if candle.low > min(candle.open, candle.close, candle.high):
-+            warnings.append(DataValidationWarning("invalid_low", "Low is above another OHLC value.", timestamp))
-+
-+        previous = candle
-+
-+    return warnings
-diff --git a/src/cbot/types.py b/src/cbot/types.py
-index ee1b8e8..06ba394 100644
---- a/src/cbot/types.py
-+++ b/src/cbot/types.py
-@@ -1,2 +1,57 @@
--"""Shared domain types will be implemented in a later slice."""
-+"""Shared domain types for the research workbench."""
- 
-+from __future__ import annotations
-+
-+from dataclasses import dataclass
-+from datetime import UTC, datetime
-+
-+
-+def ensure_utc(value: datetime) -> datetime:
-+    if value.tzinfo is None:
-+        return value.replace(tzinfo=UTC)
-+    return value.astimezone(UTC)
++class ParameterSpec:
++    default: Any
++    description: str
++    minimum: float | None = None
++    maximum: float | None = None
 +
 +
 +@dataclass(frozen=True)
-+class Candle:
-+    symbol: str
-+    timeframe: str
-+    timestamp: datetime
-+    open: float
-+    high: float
-+    low: float
-+    close: float
-+    volume: float
++class StrategyMetadata:
++    name: str
++    version: str
++    hypothesis: str
++    parameters: Mapping[str, ParameterSpec] = field(default_factory=dict)
++    warmup_candles: int = 0
 +
 +    def __post_init__(self) -> None:
-+        object.__setattr__(self, "timestamp", ensure_utc(self.timestamp))
++        if not self.name:
++            raise ValueError("Strategy name is required.")
++        if not self.version:
++            raise ValueError("Strategy version is required.")
++        if not self.hypothesis:
++            raise ValueError("Strategy hypothesis is required.")
++        if self.warmup_candles < 0:
++            raise ValueError("warmup_candles must not be negative.")
 +
-+    def to_record(self) -> dict[str, object]:
-+        return {
-+            "symbol": self.symbol,
-+            "timeframe": self.timeframe,
-+            "timestamp": self.timestamp.isoformat().replace("+00:00", "Z"),
-+            "open": self.open,
-+            "high": self.high,
-+            "low": self.low,
-+            "close": self.close,
-+            "volume": self.volume,
-+        }
++
++@runtime_checkable
++class Strategy(Protocol):
++    metadata: StrategyMetadata
++
++    def validate_parameters(self, parameters: Mapping[str, Any]) -> None:
++        ...
++
++    def on_candle(
++        self,
++        history: tuple[Candle, ...],
++        portfolio_view: Mapping[str, Any],
++        parameters: Mapping[str, Any],
++    ) -> Signal:
++        ...
++
++
++class BaseStrategy:
++    metadata: StrategyMetadata
++
++    def validate_parameters(self, parameters: Mapping[str, Any]) -> None:
++        for name, spec in self.metadata.parameters.items():
++            value = parameters.get(name, spec.default)
++            if spec.minimum is not None and value < spec.minimum:
++                raise ValueError(f"{name} must be >= {spec.minimum}.")
++            if spec.maximum is not None and value > spec.maximum:
++                raise ValueError(f"{name} must be <= {spec.maximum}.")
+diff --git a/src/cbot/strategies/sma_cross_v1.py b/src/cbot/strategies/sma_cross_v1.py
+index 0348447..9d31b05 100644
+--- a/src/cbot/strategies/sma_cross_v1.py
++++ b/src/cbot/strategies/sma_cross_v1.py
+@@ -1,2 +1,77 @@
+-"""SMA crossover validation strategy will be implemented in Slice 4."""
++"""Simple SMA crossover strategy for engine validation only."""
+ 
++from __future__ import annotations
++
++from typing import Any, Mapping
++
++from cbot.strategies.protocol import BaseStrategy, ParameterSpec, StrategyMetadata
++from cbot.types import Candle, Signal, SignalAction
++
++
++class SmaCrossV1Strategy(BaseStrategy):
++    metadata = StrategyMetadata(
++        name="sma_cross_v1",
++        version="1.0.0",
++        hypothesis=(
++            "A fast moving average crossing a slow moving average can validate signal "
++            "generation mechanics. This is not a profitability claim."
++        ),
++        parameters={
++            "fast_window": ParameterSpec(default=20, minimum=2, description="Fast SMA window."),
++            "slow_window": ParameterSpec(default=50, minimum=3, description="Slow SMA window."),
++        },
++        warmup_candles=50,
++    )
++
++    def validate_parameters(self, parameters: Mapping[str, Any]) -> None:
++        super().validate_parameters(parameters)
++        fast_window = int(parameters.get("fast_window", self.metadata.parameters["fast_window"].default))
++        slow_window = int(parameters.get("slow_window", self.metadata.parameters["slow_window"].default))
++        if fast_window >= slow_window:
++            raise ValueError("fast_window must be less than slow_window.")
++
++    def on_candle(
++        self,
++        history: tuple[Candle, ...],
++        portfolio_view: Mapping[str, Any],
++        parameters: Mapping[str, Any],
++    ) -> Signal:
++        self.validate_parameters(parameters)
++        fast_window = int(parameters.get("fast_window", self.metadata.parameters["fast_window"].default))
++        slow_window = int(parameters.get("slow_window", self.metadata.parameters["slow_window"].default))
++        if len(history) < slow_window + 1:
++            return Signal.hold("warming up")
++
++        previous_fast = average_close(history[-fast_window - 1 : -1])
++        previous_slow = average_close(history[-slow_window - 1 : -1])
++        current_fast = average_close(history[-fast_window:])
++        current_slow = average_close(history[-slow_window:])
++        has_position = bool(portfolio_view.get("has_position", False))
++
++        if previous_fast <= previous_slow and current_fast > current_slow and not has_position:
++            return Signal(
++                action=SignalAction.BUY,
++                reason="fast SMA crossed above slow SMA",
++                target_fraction=1.0,
++                features={
++                    "fast_sma": current_fast,
++                    "slow_sma": current_slow,
++                },
++            )
++        if previous_fast >= previous_slow and current_fast < current_slow and has_position:
++            return Signal(
++                action=SignalAction.EXIT,
++                reason="fast SMA crossed below slow SMA",
++                target_fraction=0.0,
++                features={
++                    "fast_sma": current_fast,
++                    "slow_sma": current_slow,
++                },
++            )
++        return Signal.hold("no crossover")
++
++
++def average_close(candles: tuple[Candle, ...]) -> float:
++    if not candles:
++        raise ValueError("Cannot average an empty candle set.")
++    return sum(candle.close for candle in candles) / len(candles)
+diff --git a/src/cbot/types.py b/src/cbot/types.py
+index 06ba394..b0a2fd4 100644
+--- a/src/cbot/types.py
++++ b/src/cbot/types.py
+@@ -4,6 +4,9 @@ from __future__ import annotations
+ 
+ from dataclasses import dataclass
+ from datetime import UTC, datetime
++from enum import StrEnum
++from types import MappingProxyType
++from typing import Any, Mapping
+ 
+ 
+ def ensure_utc(value: datetime) -> datetime:
+@@ -55,3 +58,26 @@ class Candle:
+             close=float(record["close"]),
+             volume=float(record["volume"]),
+         )
++
++
++class SignalAction(StrEnum):
++    BUY = "BUY"
++    SELL = "SELL"
++    HOLD = "HOLD"
++    EXIT = "EXIT"
++
++
++@dataclass(frozen=True)
++class Signal:
++    action: SignalAction
++    reason: str
++    target_fraction: float | None = None
++    features: Mapping[str, Any] = MappingProxyType({})
++
++    def __post_init__(self) -> None:
++        if self.target_fraction is not None and not 0 <= self.target_fraction <= 1:
++            raise ValueError("target_fraction must be between 0 and 1.")
 +
 +    @classmethod
-+    def from_record(cls, record: dict[str, object]) -> "Candle":
-+        timestamp = record["timestamp"]
-+        if isinstance(timestamp, str):
-+            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-+        if not isinstance(timestamp, datetime):
-+            raise TypeError("timestamp must be a datetime or ISO string")
-+        return cls(
-+            symbol=str(record["symbol"]),
-+            timeframe=str(record["timeframe"]),
-+            timestamp=timestamp,
-+            open=float(record["open"]),
-+            high=float(record["high"]),
-+            low=float(record["low"]),
-+            close=float(record["close"]),
-+            volume=float(record["volume"]),
-+        )
-diff --git a/tests/test_cli.py b/tests/test_cli.py
-index 76da4fd..01c4c48 100644
---- a/tests/test_cli.py
-+++ b/tests/test_cli.py
-@@ -1,4 +1,6 @@
- from cbot.cli import build_parser, main
-+from cbot.types import Candle
-+from datetime import UTC, datetime
- 
- 
- def test_cli_help_exits_cleanly(capsys):
-@@ -16,3 +18,36 @@ def test_cli_has_expected_commands():
-     commands = set(command_actions[0].choices)
-     assert {"fetch-data", "backtest", "compare", "sensitivity", "report"} <= commands
- 
-+
-+def test_fetch_data_command_uses_market_data_layer(monkeypatch, capsys):
-+    candle = Candle(
-+        symbol="BTCUSDT",
-+        timeframe="1h",
-+        timestamp=datetime(2024, 1, 1, tzinfo=UTC),
-+        open=100,
-+        high=110,
-+        low=90,
-+        close=105,
-+        volume=10,
-+    )
-+
-+    monkeypatch.setattr("cbot.cli.fetch_klines", lambda *args: [candle])
-+    monkeypatch.setattr("cbot.cli.MarketDataStore.write_candles", lambda self, candles: "fake.parquet")
-+
-+    result = main(
-+        [
-+            "fetch-data",
-+            "--symbol",
-+            "BTCUSDT",
-+            "--timeframe",
-+            "1h",
-+            "--start",
-+            "2024-01-01",
-+            "--end",
-+            "2024-01-02",
-+        ]
-+    )
-+
-+    captured = capsys.readouterr()
-+    assert result == 0
-+    assert "Wrote 1 candles to fake.parquet" in captured.out
++    def hold(cls, reason: str = "no signal") -> "Signal":
++        return cls(action=SignalAction.HOLD, reason=reason)
 
 [stderr]
-warning: in the working copy of 'pyproject.toml', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/cli.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/market_data/binance.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/market_data/store.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/market_data/validation.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/strategies/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/strategies/baselines.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/strategies/protocol.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/strategies/sma_cross_v1.py', LF will be replaced by CRLF the next time Git touches it
 warning: in the working copy of 'src/cbot/types.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'tests/test_cli.py', LF will be replaced by CRLF the next time Git touches it
 ```
 
 ## File Tree
@@ -530,6 +368,8 @@ warning: in the working copy of 'tests/test_cli.py', LF will be replaced by CRLF
 - tests\test_market_data_store.py
 - tests\test_market_data_validation.py
 - tests\test_package.py
+- tests\test_strategies.py
+- tests\test_strategy_protocol.py
 - tools\make_context.py
 
 ## Included Files
@@ -3539,7 +3379,7 @@ The generated file goes to `reviews/latest/context-pack.md`.
 ### reviews\latest\context-pack.md
 
 ```text
-[Skipped: file is 126426 bytes, above 24000 byte limit]
+[Skipped: file is 153036 bytes, above 24000 byte limit]
 ```
 
 ### src\cbot\__init__.py
@@ -4106,30 +3946,227 @@ def validate_candles(
 ```text
 """Strategy contracts and baseline strategies."""
 
+from cbot.strategies.baselines import BuyAndHoldStrategy, CashNoTradeStrategy
+from cbot.strategies.sma_cross_v1 import SmaCrossV1Strategy
+
+STRATEGIES = {
+    "cash_no_trade": CashNoTradeStrategy,
+    "buy_and_hold": BuyAndHoldStrategy,
+    "sma_cross_v1": SmaCrossV1Strategy,
+}
+
+__all__ = [
+    "BuyAndHoldStrategy",
+    "CashNoTradeStrategy",
+    "SmaCrossV1Strategy",
+    "STRATEGIES",
+]
 
 ```
 
 ### src\cbot\strategies\baselines.py
 
 ```text
-"""Cash and buy-and-hold baselines will be implemented in Slice 4."""
+"""Baseline strategies and benchmarks."""
 
+from __future__ import annotations
+
+from typing import Any, Mapping
+
+from cbot.strategies.protocol import BaseStrategy, StrategyMetadata
+from cbot.types import Candle, Signal, SignalAction
+
+
+class CashNoTradeStrategy(BaseStrategy):
+    metadata = StrategyMetadata(
+        name="cash_no_trade",
+        version="1.0.0",
+        hypothesis="Holding cash is the sanity baseline for active strategy evaluation.",
+    )
+
+    def on_candle(
+        self,
+        history: tuple[Candle, ...],
+        portfolio_view: Mapping[str, Any],
+        parameters: Mapping[str, Any],
+    ) -> Signal:
+        return Signal.hold("cash baseline never trades")
+
+
+class BuyAndHoldStrategy(BaseStrategy):
+    metadata = StrategyMetadata(
+        name="buy_and_hold",
+        version="1.0.0",
+        hypothesis="Buying once at the start and holding is the market exposure benchmark.",
+        warmup_candles=1,
+    )
+
+    def on_candle(
+        self,
+        history: tuple[Candle, ...],
+        portfolio_view: Mapping[str, Any],
+        parameters: Mapping[str, Any],
+    ) -> Signal:
+        has_position = bool(portfolio_view.get("has_position", False))
+        if not has_position:
+            return Signal(
+                action=SignalAction.BUY,
+                reason="enter buy-and-hold benchmark",
+                target_fraction=1.0,
+            )
+        return Signal.hold("already holding benchmark position")
 
 ```
 
 ### src\cbot\strategies\protocol.py
 
 ```text
-"""Strategy protocol will be implemented in Slice 4."""
+"""Strategy protocol and metadata contracts."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Protocol, runtime_checkable
+
+from cbot.types import Candle, Signal
+
+
+@dataclass(frozen=True)
+class ParameterSpec:
+    default: Any
+    description: str
+    minimum: float | None = None
+    maximum: float | None = None
+
+
+@dataclass(frozen=True)
+class StrategyMetadata:
+    name: str
+    version: str
+    hypothesis: str
+    parameters: Mapping[str, ParameterSpec] = field(default_factory=dict)
+    warmup_candles: int = 0
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("Strategy name is required.")
+        if not self.version:
+            raise ValueError("Strategy version is required.")
+        if not self.hypothesis:
+            raise ValueError("Strategy hypothesis is required.")
+        if self.warmup_candles < 0:
+            raise ValueError("warmup_candles must not be negative.")
+
+
+@runtime_checkable
+class Strategy(Protocol):
+    metadata: StrategyMetadata
+
+    def validate_parameters(self, parameters: Mapping[str, Any]) -> None:
+        ...
+
+    def on_candle(
+        self,
+        history: tuple[Candle, ...],
+        portfolio_view: Mapping[str, Any],
+        parameters: Mapping[str, Any],
+    ) -> Signal:
+        ...
+
+
+class BaseStrategy:
+    metadata: StrategyMetadata
+
+    def validate_parameters(self, parameters: Mapping[str, Any]) -> None:
+        for name, spec in self.metadata.parameters.items():
+            value = parameters.get(name, spec.default)
+            if spec.minimum is not None and value < spec.minimum:
+                raise ValueError(f"{name} must be >= {spec.minimum}.")
+            if spec.maximum is not None and value > spec.maximum:
+                raise ValueError(f"{name} must be <= {spec.maximum}.")
 
 ```
 
 ### src\cbot\strategies\sma_cross_v1.py
 
 ```text
-"""SMA crossover validation strategy will be implemented in Slice 4."""
+"""Simple SMA crossover strategy for engine validation only."""
 
+from __future__ import annotations
+
+from typing import Any, Mapping
+
+from cbot.strategies.protocol import BaseStrategy, ParameterSpec, StrategyMetadata
+from cbot.types import Candle, Signal, SignalAction
+
+
+class SmaCrossV1Strategy(BaseStrategy):
+    metadata = StrategyMetadata(
+        name="sma_cross_v1",
+        version="1.0.0",
+        hypothesis=(
+            "A fast moving average crossing a slow moving average can validate signal "
+            "generation mechanics. This is not a profitability claim."
+        ),
+        parameters={
+            "fast_window": ParameterSpec(default=20, minimum=2, description="Fast SMA window."),
+            "slow_window": ParameterSpec(default=50, minimum=3, description="Slow SMA window."),
+        },
+        warmup_candles=50,
+    )
+
+    def validate_parameters(self, parameters: Mapping[str, Any]) -> None:
+        super().validate_parameters(parameters)
+        fast_window = int(parameters.get("fast_window", self.metadata.parameters["fast_window"].default))
+        slow_window = int(parameters.get("slow_window", self.metadata.parameters["slow_window"].default))
+        if fast_window >= slow_window:
+            raise ValueError("fast_window must be less than slow_window.")
+
+    def on_candle(
+        self,
+        history: tuple[Candle, ...],
+        portfolio_view: Mapping[str, Any],
+        parameters: Mapping[str, Any],
+    ) -> Signal:
+        self.validate_parameters(parameters)
+        fast_window = int(parameters.get("fast_window", self.metadata.parameters["fast_window"].default))
+        slow_window = int(parameters.get("slow_window", self.metadata.parameters["slow_window"].default))
+        if len(history) < slow_window + 1:
+            return Signal.hold("warming up")
+
+        previous_fast = average_close(history[-fast_window - 1 : -1])
+        previous_slow = average_close(history[-slow_window - 1 : -1])
+        current_fast = average_close(history[-fast_window:])
+        current_slow = average_close(history[-slow_window:])
+        has_position = bool(portfolio_view.get("has_position", False))
+
+        if previous_fast <= previous_slow and current_fast > current_slow and not has_position:
+            return Signal(
+                action=SignalAction.BUY,
+                reason="fast SMA crossed above slow SMA",
+                target_fraction=1.0,
+                features={
+                    "fast_sma": current_fast,
+                    "slow_sma": current_slow,
+                },
+            )
+        if previous_fast >= previous_slow and current_fast < current_slow and has_position:
+            return Signal(
+                action=SignalAction.EXIT,
+                reason="fast SMA crossed below slow SMA",
+                target_fraction=0.0,
+                features={
+                    "fast_sma": current_fast,
+                    "slow_sma": current_slow,
+                },
+            )
+        return Signal.hold("no crossover")
+
+
+def average_close(candles: tuple[Candle, ...]) -> float:
+    if not candles:
+        raise ValueError("Cannot average an empty candle set.")
+    return sum(candle.close for candle in candles) / len(candles)
 
 ```
 
@@ -4142,6 +4179,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
+from types import MappingProxyType
+from typing import Any, Mapping
 
 
 def ensure_utc(value: datetime) -> datetime:
@@ -4193,6 +4233,29 @@ class Candle:
             close=float(record["close"]),
             volume=float(record["volume"]),
         )
+
+
+class SignalAction(StrEnum):
+    BUY = "BUY"
+    SELL = "SELL"
+    HOLD = "HOLD"
+    EXIT = "EXIT"
+
+
+@dataclass(frozen=True)
+class Signal:
+    action: SignalAction
+    reason: str
+    target_fraction: float | None = None
+    features: Mapping[str, Any] = MappingProxyType({})
+
+    def __post_init__(self) -> None:
+        if self.target_fraction is not None and not 0 <= self.target_fraction <= 1:
+            raise ValueError("target_fraction must be between 0 and 1.")
+
+    @classmethod
+    def hold(cls, reason: str = "no signal") -> "Signal":
+        return cls(action=SignalAction.HOLD, reason=reason)
 
 ```
 
@@ -4604,6 +4667,127 @@ import cbot
 
 def test_package_version_exists():
     assert cbot.__version__
+
+
+```
+
+### tests\test_strategies.py
+
+```text
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+from cbot.strategies import STRATEGIES
+from cbot.strategies.baselines import BuyAndHoldStrategy, CashNoTradeStrategy
+from cbot.strategies.sma_cross_v1 import SmaCrossV1Strategy, average_close
+from cbot.types import Candle, SignalAction
+
+
+def candles_from_closes(closes):
+    candles = []
+    for index, close in enumerate(closes):
+        candles.append(
+            Candle(
+                symbol="BTCUSDT",
+                timeframe="1h",
+                timestamp=datetime(2024, 1, 1, tzinfo=UTC) + timedelta(hours=index),
+                open=close,
+                high=close + 1,
+                low=close - 1,
+                close=close,
+                volume=10,
+            )
+        )
+    return tuple(candles)
+
+
+def test_registry_contains_baseline_strategies():
+    assert {"cash_no_trade", "buy_and_hold", "sma_cross_v1"} <= set(STRATEGIES)
+
+
+def test_cash_no_trade_never_trades():
+    strategy = CashNoTradeStrategy()
+    signal = strategy.on_candle(candles_from_closes([100]), {}, {})
+    assert signal.action == SignalAction.HOLD
+
+
+def test_buy_and_hold_buys_once_then_holds():
+    strategy = BuyAndHoldStrategy()
+
+    first = strategy.on_candle(candles_from_closes([100]), {"has_position": False}, {})
+    second = strategy.on_candle(candles_from_closes([100, 101]), {"has_position": True}, {})
+
+    assert first.action == SignalAction.BUY
+    assert first.target_fraction == 1.0
+    assert second.action == SignalAction.HOLD
+
+
+def test_sma_cross_validates_windows():
+    strategy = SmaCrossV1Strategy()
+    with pytest.raises(ValueError, match="fast_window"):
+        strategy.validate_parameters({"fast_window": 20, "slow_window": 20})
+
+
+def test_sma_cross_warms_up_before_signal():
+    strategy = SmaCrossV1Strategy()
+    signal = strategy.on_candle(candles_from_closes([100, 101]), {}, {"fast_window": 2, "slow_window": 3})
+    assert signal.action == SignalAction.HOLD
+    assert signal.reason == "warming up"
+
+
+def test_sma_cross_emits_buy_on_bullish_cross():
+    strategy = SmaCrossV1Strategy()
+    # Previous fast average <= previous slow average, current fast > current slow.
+    history = candles_from_closes([10, 10, 10, 10, 20])
+
+    signal = strategy.on_candle(history, {"has_position": False}, {"fast_window": 2, "slow_window": 4})
+
+    assert signal.action == SignalAction.BUY
+    assert signal.target_fraction == 1.0
+    assert "fast_sma" in signal.features
+
+
+def test_sma_cross_emits_exit_on_bearish_cross():
+    strategy = SmaCrossV1Strategy()
+    history = candles_from_closes([20, 20, 20, 20, 10])
+
+    signal = strategy.on_candle(history, {"has_position": True}, {"fast_window": 2, "slow_window": 4})
+
+    assert signal.action == SignalAction.EXIT
+    assert signal.target_fraction == 0.0
+
+
+def test_average_close_rejects_empty_input():
+    with pytest.raises(ValueError):
+        average_close(())
+
+
+```
+
+### tests\test_strategy_protocol.py
+
+```text
+import pytest
+
+from cbot.strategies.protocol import ParameterSpec, StrategyMetadata
+
+
+def test_strategy_metadata_requires_hypothesis():
+    with pytest.raises(ValueError, match="hypothesis"):
+        StrategyMetadata(name="x", version="1.0.0", hypothesis="")
+
+
+def test_strategy_metadata_rejects_negative_warmup():
+    with pytest.raises(ValueError, match="warmup"):
+        StrategyMetadata(name="x", version="1.0.0", hypothesis="test", warmup_candles=-1)
+
+
+def test_parameter_spec_holds_bounds():
+    spec = ParameterSpec(default=10, description="window", minimum=2, maximum=100)
+    assert spec.default == 10
+    assert spec.minimum == 2
+    assert spec.maximum == 100
 
 
 ```

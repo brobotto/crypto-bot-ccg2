@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
+from types import MappingProxyType
+from typing import Any, Mapping
 
 
 def ensure_utc(value: datetime) -> datetime:
@@ -55,3 +58,26 @@ class Candle:
             close=float(record["close"]),
             volume=float(record["volume"]),
         )
+
+
+class SignalAction(StrEnum):
+    BUY = "BUY"
+    SELL = "SELL"
+    HOLD = "HOLD"
+    EXIT = "EXIT"
+
+
+@dataclass(frozen=True)
+class Signal:
+    action: SignalAction
+    reason: str
+    target_fraction: float | None = None
+    features: Mapping[str, Any] = MappingProxyType({})
+
+    def __post_init__(self) -> None:
+        if self.target_fraction is not None and not 0 <= self.target_fraction <= 1:
+            raise ValueError("target_fraction must be between 0 and 1.")
+
+    @classmethod
+    def hold(cls, reason: str = "no signal") -> "Signal":
+        return cls(action=SignalAction.HOLD, reason=reason)
