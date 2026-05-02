@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run.completed.schema.json",
+  "title": "run.completed",
+  "type": "object",
+  "required": ["schema_version", "event_type", "run_id", "timestamp", "sequence", "payload"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "event_type": { "type": "string", "const": "run.completed" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "payload": {
+      "type": "object",
+      "required": ["status", "verdict", "metrics"],
+      "properties": {
+        "status": { "type": "string", "enum": ["COMPLETED", "FAILED"] },
+        "verdict": { "type": "string", "enum": ["REJECT", "INSUFFICIENT_DATA", "CONDITIONAL", "CANDIDATE"] },
+        "metrics": { "type": "object" },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
+

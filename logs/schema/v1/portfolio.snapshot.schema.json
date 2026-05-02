@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "portfolio.snapshot.schema.json",
+  "title": "portfolio.snapshot",
+  "type": "object",
+  "required": ["schema_version", "event_type", "run_id", "timestamp", "sequence", "payload"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "event_type": { "type": "string", "const": "portfolio.snapshot" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "payload": {
+      "type": "object",
+      "required": ["cash", "equity", "drawdown_pct", "positions"],
+      "properties": {
+        "cash": { "type": "number", "minimum": 0 },
+        "equity": { "type": "number", "minimum": 0 },
+        "drawdown_pct": { "type": "number", "minimum": 0 },
+        "positions": { "type": "object" },
+        "realized_pnl": { "type": "number" },
+        "unrealized_pnl": { "type": "number" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
+

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "strategy.signal.schema.json",
+  "title": "strategy.signal",
+  "type": "object",
+  "required": ["schema_version", "event_type", "run_id", "timestamp", "sequence", "payload"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "event_type": { "type": "string", "const": "strategy.signal" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "payload": {
+      "type": "object",
+      "required": ["strategy", "symbol", "timeframe", "candle_time", "signal"],
+      "properties": {
+        "strategy": { "type": "string", "minLength": 1 },
+        "symbol": { "type": "string", "minLength": 1 },
+        "timeframe": { "type": "string", "minLength": 1 },
+        "candle_time": { "type": "string", "format": "date-time" },
+        "signal": { "type": "string", "enum": ["BUY", "SELL", "HOLD", "EXIT"] },
+        "reason": { "type": "string" },
+        "features": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
+

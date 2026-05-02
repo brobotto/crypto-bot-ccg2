@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "simulation.fill.schema.json",
+  "title": "simulation.fill",
+  "type": "object",
+  "required": ["schema_version", "event_type", "run_id", "timestamp", "sequence", "payload"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "event_type": { "type": "string", "const": "simulation.fill" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "payload": {
+      "type": "object",
+      "required": ["symbol", "side", "quantity", "price", "fee", "fee_asset", "slippage_bps"],
+      "properties": {
+        "symbol": { "type": "string", "minLength": 1 },
+        "side": { "type": "string", "enum": ["BUY", "SELL"] },
+        "quantity": { "type": "number", "exclusiveMinimum": 0 },
+        "price": { "type": "number", "exclusiveMinimum": 0 },
+        "fee": { "type": "number", "minimum": 0 },
+        "fee_asset": { "type": "string", "minLength": 1 },
+        "slippage_bps": { "type": "number", "minimum": 0 },
+        "order_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
+
