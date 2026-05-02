@@ -1,477 +1,368 @@
 # Context Pack
 
-Generated: 2026-05-02T18:32:57
+Generated: 2026-05-02T18:41:09
 Repo: `C:\Users\User\Documents\crypto-bot-ccg2`
 
 ## Current Task
 
-Slice 5 complete: deterministic backtest replay verified
+Slice 6 complete: execution and portfolio simulation verified
 
 ## Git Status
 
 ```text
-M logs/schema/v1/event-envelope.schema.json
- M logs/schema/v1/portfolio.snapshot.schema.json
- M logs/schema/v1/run.completed.schema.json
- M logs/schema/v1/run.started.schema.json
- M logs/schema/v1/simulation.fill.schema.json
- M logs/schema/v1/strategy.signal.schema.json
- M src/cbot/cli.py
- M src/cbot/config.py
- M src/cbot/engine/backtest.py
- M src/cbot/engine/events.py
- M tests/test_cli.py
-?? tests/test_backtest_determinism.py
-?? tests/test_config.py
+M src/cbot/engine/backtest.py
+ M src/cbot/engine/execution.py
+ M src/cbot/engine/portfolio.py
+ M src/cbot/types.py
+?? tests/test_execution_simulator.py
+?? tests/test_portfolio.py
 ```
 
 ## Git Diff
 
 ```diff
-diff --git a/logs/schema/v1/event-envelope.schema.json b/logs/schema/v1/event-envelope.schema.json
-index 73a8d66..adc44af 100644
---- a/logs/schema/v1/event-envelope.schema.json
-+++ b/logs/schema/v1/event-envelope.schema.json
-@@ -15,7 +15,7 @@
-     },
-     "run_id": {
-       "type": "string",
--      "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$"
-+      "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$"
-     },
-     "timestamp": {
-       "type": "string",
-@@ -31,4 +31,3 @@
-   },
-   "additionalProperties": false
- }
--
-diff --git a/logs/schema/v1/portfolio.snapshot.schema.json b/logs/schema/v1/portfolio.snapshot.schema.json
-index 5ca7cd9..ce8ccf4 100644
---- a/logs/schema/v1/portfolio.snapshot.schema.json
-+++ b/logs/schema/v1/portfolio.snapshot.schema.json
-@@ -7,7 +7,7 @@
-   "properties": {
-     "schema_version": { "type": "string", "const": "1.0" },
-     "event_type": { "type": "string", "const": "portfolio.snapshot" },
--    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
-+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
-     "timestamp": { "type": "string", "format": "date-time" },
-     "sequence": { "type": "integer", "minimum": 1 },
-     "payload": {
-@@ -26,4 +26,3 @@
-   },
-   "additionalProperties": false
- }
--
-diff --git a/logs/schema/v1/run.completed.schema.json b/logs/schema/v1/run.completed.schema.json
-index 878db18..cc9d2ad 100644
---- a/logs/schema/v1/run.completed.schema.json
-+++ b/logs/schema/v1/run.completed.schema.json
-@@ -7,7 +7,7 @@
-   "properties": {
-     "schema_version": { "type": "string", "const": "1.0" },
-     "event_type": { "type": "string", "const": "run.completed" },
--    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
-+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
-     "timestamp": { "type": "string", "format": "date-time" },
-     "sequence": { "type": "integer", "minimum": 1 },
-     "payload": {
-@@ -27,4 +27,3 @@
-   },
-   "additionalProperties": false
- }
--
-diff --git a/logs/schema/v1/run.started.schema.json b/logs/schema/v1/run.started.schema.json
-index d900381..adef887 100644
---- a/logs/schema/v1/run.started.schema.json
-+++ b/logs/schema/v1/run.started.schema.json
-@@ -7,7 +7,7 @@
-   "properties": {
-     "schema_version": { "type": "string", "const": "1.0" },
-     "event_type": { "type": "string", "const": "run.started" },
--    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
-+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
-     "timestamp": { "type": "string", "format": "date-time" },
-     "sequence": { "type": "integer", "minimum": 1 },
-     "payload": {
-@@ -25,4 +25,3 @@
-   },
-   "additionalProperties": false
- }
--
-diff --git a/logs/schema/v1/simulation.fill.schema.json b/logs/schema/v1/simulation.fill.schema.json
-index 7c59d03..842863e 100644
---- a/logs/schema/v1/simulation.fill.schema.json
-+++ b/logs/schema/v1/simulation.fill.schema.json
-@@ -7,7 +7,7 @@
-   "properties": {
-     "schema_version": { "type": "string", "const": "1.0" },
-     "event_type": { "type": "string", "const": "simulation.fill" },
--    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
-+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
-     "timestamp": { "type": "string", "format": "date-time" },
-     "sequence": { "type": "integer", "minimum": 1 },
-     "payload": {
-@@ -28,4 +28,3 @@
-   },
-   "additionalProperties": false
- }
--
-diff --git a/logs/schema/v1/strategy.signal.schema.json b/logs/schema/v1/strategy.signal.schema.json
-index 79b6374..d2f63b9 100644
---- a/logs/schema/v1/strategy.signal.schema.json
-+++ b/logs/schema/v1/strategy.signal.schema.json
-@@ -7,7 +7,7 @@
-   "properties": {
-     "schema_version": { "type": "string", "const": "1.0" },
-     "event_type": { "type": "string", "const": "strategy.signal" },
--    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+$" },
-+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}_[0-9]{6}_[a-z0-9_.-]+(_[0-9]+)?$" },
-     "timestamp": { "type": "string", "format": "date-time" },
-     "sequence": { "type": "integer", "minimum": 1 },
-     "payload": {
-@@ -27,4 +27,3 @@
-   },
-   "additionalProperties": false
- }
--
-diff --git a/src/cbot/cli.py b/src/cbot/cli.py
-index 3a6134c..5867873 100644
---- a/src/cbot/cli.py
-+++ b/src/cbot/cli.py
-@@ -8,9 +8,12 @@ from datetime import UTC, datetime
- from pathlib import Path
- 
- from cbot import __version__
-+from cbot.config import RunConfig
-+from cbot.engine.backtest import run_backtest
- from cbot.market_data.binance import fetch_klines
- from cbot.market_data.store import MarketDataStore
- from cbot.market_data.validation import validate_candles
-+from cbot.strategies import STRATEGIES
- 
- 
- def build_parser() -> argparse.ArgumentParser:
-@@ -62,6 +65,15 @@ def handle_fetch_data(args: argparse.Namespace) -> int:
-     return 0
- 
- 
-+def handle_backtest(args: argparse.Namespace) -> int:
-+    config = RunConfig.from_yaml(Path(args.config))
-+    candles = MarketDataStore(Path("data/market")).read_candles(config.symbol, config.timeframe)
-+    strategy_cls = STRATEGIES[config.strategy_name]
-+    result = run_backtest(config, candles, strategy_cls())
-+    print(f"Wrote run {result.run_id} to {result.run_dir}")
-+    return 0
-+
-+
- def main(argv: Sequence[str] | None = None) -> int:
-     parser = build_parser()
-     args = parser.parse_args(argv)
-@@ -72,6 +84,8 @@ def main(argv: Sequence[str] | None = None) -> int:
- 
-     if args.command == "fetch-data":
-         return handle_fetch_data(args)
-+    if args.command == "backtest":
-+        return handle_backtest(args)
- 
-     print(f"{args.command} is not implemented yet. Slice 1 only created the CLI shell.")
-     return 0
-diff --git a/src/cbot/config.py b/src/cbot/config.py
-index ee72bc4..cbb026f 100644
---- a/src/cbot/config.py
-+++ b/src/cbot/config.py
-@@ -1,2 +1,95 @@
--"""Configuration loading will be implemented in a later slice."""
-+"""Run configuration helpers."""
- 
-+from __future__ import annotations
-+
-+from dataclasses import dataclass
-+from datetime import UTC, datetime
-+from pathlib import Path
-+from typing import Any
-+
-+import yaml
-+
-+
-+def parse_date(value: str) -> datetime:
-+    parsed = datetime.fromisoformat(value)
-+    if parsed.tzinfo is None:
-+        return parsed.replace(tzinfo=UTC)
-+    return parsed.astimezone(UTC)
-+
-+
-+@dataclass(frozen=True)
-+class RunConfig:
-+    label: str
-+    sample_label: str
-+    start: datetime
-+    end: datetime
-+    symbol: str
-+    timeframe: str
-+    strategy_name: str
-+    strategy_version: str
-+    strategy_parameters: dict[str, Any]
-+    initial_cash: float
-+    base_asset: str
-+    quote_asset: str
-+    fee_bps: float
-+    slippage_bps: float
-+    max_drawdown_pct: float
-+    min_trade_count: int
-+    drawdown_mode: str
-+
-+    @classmethod
-+    def from_dict(cls, raw: dict[str, Any]) -> "RunConfig":
-+        run = raw["run"]
-+        market = raw["market"]
-+        strategy = raw["strategy"]
-+        portfolio = raw["portfolio"]
-+        simulation = raw["simulation"]
-+
-+        start_key = "test_start" if run.get("sample_label") == "OUT_OF_SAMPLE" else "train_start"
-+        end_key = "test_end" if run.get("sample_label") == "OUT_OF_SAMPLE" else "train_end"
-+
-+        return cls(
-+            label=str(run["label"]),
-+            sample_label=str(run["sample_label"]),
-+            start=parse_date(str(run[start_key])),
-+            end=parse_date(str(run[end_key])),
-+            symbol=str(market["symbol"]),
-+            timeframe=str(market["timeframe"]),
-+            strategy_name=str(strategy["name"]),
-+            strategy_version=str(strategy["version"]),
-+            strategy_parameters=dict(strategy.get("parameters", {})),
-+            initial_cash=float(portfolio["initial_cash"]),
-+            base_asset=str(portfolio["base_asset"]),
-+            quote_asset=str(portfolio["quote_asset"]),
-+            fee_bps=float(simulation["fee_bps"]),
-+            slippage_bps=float(simulation["slippage_bps"]),
-+            max_drawdown_pct=float(simulation["max_drawdown_pct"]),
-+            min_trade_count=int(simulation["min_trade_count"]),
-+            drawdown_mode=str(simulation["drawdown_mode"]),
-+        )
-+
-+    @classmethod
-+    def from_yaml(cls, path: Path) -> "RunConfig":
-+        return cls.from_dict(yaml.safe_load(path.read_text(encoding="utf-8")))
-+
-+    def to_event_payload(self) -> dict[str, Any]:
-+        return {
-+            "label": self.label,
-+            "sample_label": self.sample_label,
-+            "market": {
-+                "symbol": self.symbol,
-+                "timeframe": self.timeframe,
-+            },
-+            "strategy": {
-+                "name": self.strategy_name,
-+                "version": self.strategy_version,
-+                "parameters": self.strategy_parameters,
-+            },
-+            "simulation": {
-+                "fee_bps": self.fee_bps,
-+                "slippage_bps": self.slippage_bps,
-+                "max_drawdown_pct": self.max_drawdown_pct,
-+                "min_trade_count": self.min_trade_count,
-+                "drawdown_mode": self.drawdown_mode,
-+            },
-+        }
 diff --git a/src/cbot/engine/backtest.py b/src/cbot/engine/backtest.py
-index b524e40..4057a16 100644
+index 4057a16..14d8780 100644
 --- a/src/cbot/engine/backtest.py
 +++ b/src/cbot/engine/backtest.py
-@@ -1,2 +1,110 @@
--"""Deterministic backtest replay will be implemented in Slice 5."""
-+"""Deterministic historical backtest replay."""
+@@ -8,8 +8,10 @@ from typing import Any
+ 
+ from cbot.config import RunConfig
+ from cbot.engine.events import JsonlEventWriter, RunDirectory, create_run_directory, write_json
++from cbot.engine.execution import ExecutionSettings, ExecutionSimulator
++from cbot.engine.portfolio import Portfolio
+ from cbot.strategies.protocol import Strategy
+-from cbot.types import Candle, SignalAction
++from cbot.types import Candle, Fill, SignalAction
+ 
+ 
+ @dataclass(frozen=True)
+@@ -17,6 +19,7 @@ class BacktestResult:
+     run_id: str
+     run_dir: Path
+     signals_seen: int
++    fills_seen: int
+ 
+ 
+ def run_backtest(
+@@ -46,13 +49,16 @@ def run_backtest(
+ 
+     writer.write("run.started", run_dir.run_id, config.to_event_payload())
+     signals_seen = 0
++    fills_seen = 0
+     history: list[Candle] = []
+-    portfolio_view: dict[str, Any] = {
+-        "has_position": False,
+-        "cash": config.initial_cash,
+-        "base_asset": config.base_asset,
+-        "quote_asset": config.quote_asset,
+-    }
++    portfolio = Portfolio(
++        cash=config.initial_cash,
++        base_asset=config.base_asset,
++        quote_asset=config.quote_asset,
++    )
++    execution = ExecutionSimulator(
++        ExecutionSettings(fee_bps=config.fee_bps, slippage_bps=config.slippage_bps)
++    )
+ 
+     for candle in candles:
+         if candle.symbol != config.symbol or candle.timeframe != config.timeframe:
+@@ -61,7 +67,7 @@ def run_backtest(
+             continue
+ 
+         history.append(candle)
+-        signal = strategy.on_candle(tuple(history), portfolio_view, config.strategy_parameters)
++        signal = strategy.on_candle(tuple(history), portfolio.view(), config.strategy_parameters)
+         if signal.action != SignalAction.HOLD:
+             signals_seen += 1
+             writer.write(
+@@ -77,10 +83,18 @@ def run_backtest(
+                     "features": dict(signal.features),
+                 },
+             )
+-            if signal.action == SignalAction.BUY:
+-                portfolio_view["has_position"] = True
+-            elif signal.action in {SignalAction.SELL, SignalAction.EXIT}:
+-                portfolio_view["has_position"] = False
++            intent = execution.intent_from_signal(candle.symbol, signal)
++            if intent:
++                fill = execution.simulate_fill(intent, candle, portfolio)
++                if fill:
++                    portfolio.apply_fill(fill)
++                    fills_seen += 1
++                    writer.write("simulation.fill", run_dir.run_id, fill_payload(fill))
++                    writer.write(
++                        "portfolio.snapshot",
++                        run_dir.run_id,
++                        portfolio.snapshot(candle.close),
++                    )
+ 
+     writer.write(
+         "run.completed",
+@@ -90,8 +104,11 @@ def run_backtest(
+             "verdict": "INSUFFICIENT_DATA",
+             "metrics": {
+                 "signals_seen": signals_seen,
++                "fills_seen": fills_seen,
++                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
++                "max_drawdown_pct": portfolio.max_drawdown_pct,
+             },
+-            "warnings": ["Slice 5 emits signals only; execution simulation is not implemented yet."],
++            "warnings": ["Slice 6 simulation is basic; metrics/verdict rules are implemented in later slices."],
+         },
+     )
+     write_json(
+@@ -100,11 +117,39 @@ def run_backtest(
+             "run_id": run_dir.run_id,
+             "status": "COMPLETED",
+             "verdict": "INSUFFICIENT_DATA",
+-            "metrics": {"signals_seen": signals_seen},
++            "metrics": {
++                "signals_seen": signals_seen,
++                "fills_seen": fills_seen,
++                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
++                "max_drawdown_pct": portfolio.max_drawdown_pct,
++            },
+         },
+     )
+     run_dir.summary_path.write_text(
+-        f"# Backtest Summary\n\nRun: `{run_dir.run_id}`\n\nSignals seen: {signals_seen}\n",
++        (
++            "# Backtest Summary\n\n"
++            f"Run: `{run_dir.run_id}`\n\n"
++            f"Signals seen: {signals_seen}\n\n"
++            f"Fills seen: {fills_seen}\n"
++        ),
+         encoding="utf-8",
+     )
+-    return BacktestResult(run_id=run_dir.run_id, run_dir=run_dir.path, signals_seen=signals_seen)
++    return BacktestResult(
++        run_id=run_dir.run_id,
++        run_dir=run_dir.path,
++        signals_seen=signals_seen,
++        fills_seen=fills_seen,
++    )
++
++
++def fill_payload(fill: Fill) -> dict[str, Any]:
++    return {
++        "symbol": fill.symbol,
++        "side": "SELL" if fill.side == SignalAction.EXIT else fill.side.value,
++        "quantity": fill.quantity,
++        "price": fill.price,
++        "fee": fill.fee,
++        "fee_asset": fill.fee_asset,
++        "slippage_bps": fill.slippage_bps,
++        "order_id": fill.order_id,
++    }
+diff --git a/src/cbot/engine/execution.py b/src/cbot/engine/execution.py
+index 0264340..cfa4252 100644
+--- a/src/cbot/engine/execution.py
++++ b/src/cbot/engine/execution.py
+@@ -1,2 +1,84 @@
+-"""Execution simulation will be implemented in Slice 6."""
++"""Simple spot execution simulation."""
  
 +from __future__ import annotations
 +
 +from dataclasses import dataclass
-+from pathlib import Path
-+from typing import Any
 +
-+from cbot.config import RunConfig
-+from cbot.engine.events import JsonlEventWriter, RunDirectory, create_run_directory, write_json
-+from cbot.strategies.protocol import Strategy
-+from cbot.types import Candle, SignalAction
++from cbot.engine.portfolio import Portfolio
++from cbot.types import Candle, Fill, OrderIntent, Signal, SignalAction
 +
 +
 +@dataclass(frozen=True)
-+class BacktestResult:
-+    run_id: str
-+    run_dir: Path
-+    signals_seen: int
++class ExecutionSettings:
++    fee_bps: float
++    slippage_bps: float
++    min_notional: float = 10.0
 +
 +
-+def run_backtest(
-+    config: RunConfig,
-+    candles: list[Candle],
-+    strategy: Strategy,
-+    runs_root: Path = Path("logs/runs"),
-+) -> BacktestResult:
-+    if strategy.metadata.name != config.strategy_name:
-+        raise ValueError(f"Config strategy {config.strategy_name} does not match {strategy.metadata.name}.")
-+    if strategy.metadata.version != config.strategy_version:
-+        raise ValueError(f"Config strategy version {config.strategy_version} does not match {strategy.metadata.version}.")
++class ExecutionSimulator:
++    def __init__(self, settings: ExecutionSettings) -> None:
++        self.settings = settings
++        self._order_sequence = 0
 +
-+    strategy.validate_parameters(config.strategy_parameters)
-+    run_dir = create_run_directory(runs_root, config.label)
-+    writer = JsonlEventWriter(run_dir.events_path)
-+    write_json(run_dir.config_path, config.to_event_payload())
-+    write_json(
-+        run_dir.strategy_meta_path,
-+        {
-+            "name": strategy.metadata.name,
-+            "version": strategy.metadata.version,
-+            "hypothesis": strategy.metadata.hypothesis,
-+            "warmup_candles": strategy.metadata.warmup_candles,
-+        },
-+    )
++    def intent_from_signal(self, symbol: str, signal: Signal) -> OrderIntent | None:
++        if signal.action == SignalAction.HOLD:
++            return None
++        target_fraction = signal.target_fraction
++        if target_fraction is None:
++            target_fraction = 1.0 if signal.action == SignalAction.BUY else 0.0
++        return OrderIntent(
++            symbol=symbol,
++            side=signal.action,
++            target_fraction=target_fraction,
++            reason=signal.reason,
++        )
 +
-+    writer.write("run.started", run_dir.run_id, config.to_event_payload())
-+    signals_seen = 0
-+    history: list[Candle] = []
-+    portfolio_view: dict[str, Any] = {
-+        "has_position": False,
-+        "cash": config.initial_cash,
-+        "base_asset": config.base_asset,
-+        "quote_asset": config.quote_asset,
-+    }
++    def simulate_fill(self, intent: OrderIntent, candle: Candle, portfolio: Portfolio) -> Fill | None:
++        self._order_sequence += 1
++        order_id = f"sim-{self._order_sequence:06d}"
 +
-+    for candle in candles:
-+        if candle.symbol != config.symbol or candle.timeframe != config.timeframe:
-+            continue
-+        if not config.start <= candle.timestamp <= config.end:
-+            continue
-+
-+        history.append(candle)
-+        signal = strategy.on_candle(tuple(history), portfolio_view, config.strategy_parameters)
-+        if signal.action != SignalAction.HOLD:
-+            signals_seen += 1
-+            writer.write(
-+                "strategy.signal",
-+                run_dir.run_id,
-+                {
-+                    "strategy": strategy.metadata.name,
-+                    "symbol": candle.symbol,
-+                    "timeframe": candle.timeframe,
-+                    "candle_time": candle.timestamp.isoformat().replace("+00:00", "Z"),
-+                    "signal": signal.action.value,
-+                    "reason": signal.reason,
-+                    "features": dict(signal.features),
-+                },
++        if intent.side == SignalAction.BUY:
++            price = apply_slippage(candle.close, self.settings.slippage_bps, buy=True)
++            target_notional = portfolio.equity(candle.close) * intent.target_fraction
++            spendable = min(portfolio.cash, target_notional)
++            if spendable < self.settings.min_notional:
++                return None
++            fee_rate = self.settings.fee_bps / 10_000
++            quantity = spendable / (price * (1 + fee_rate))
++            fee = quantity * price * fee_rate
++            return Fill(
++                symbol=intent.symbol,
++                side=SignalAction.BUY,
++                quantity=quantity,
++                price=price,
++                fee=fee,
++                fee_asset=portfolio.quote_asset,
++                slippage_bps=self.settings.slippage_bps,
++                order_id=order_id,
 +            )
-+            if signal.action == SignalAction.BUY:
-+                portfolio_view["has_position"] = True
-+            elif signal.action in {SignalAction.SELL, SignalAction.EXIT}:
-+                portfolio_view["has_position"] = False
 +
-+    writer.write(
-+        "run.completed",
-+        run_dir.run_id,
-+        {
-+            "status": "COMPLETED",
-+            "verdict": "INSUFFICIENT_DATA",
-+            "metrics": {
-+                "signals_seen": signals_seen,
++        if intent.side in {SignalAction.SELL, SignalAction.EXIT}:
++            quantity = portfolio.position_qty * (1 - intent.target_fraction)
++            if quantity <= 0:
++                return None
++            price = apply_slippage(candle.close, self.settings.slippage_bps, buy=False)
++            if quantity * price < self.settings.min_notional:
++                return None
++            fee = quantity * price * (self.settings.fee_bps / 10_000)
++            return Fill(
++                symbol=intent.symbol,
++                side=intent.side,
++                quantity=quantity,
++                price=price,
++                fee=fee,
++                fee_asset=portfolio.quote_asset,
++                slippage_bps=self.settings.slippage_bps,
++                order_id=order_id,
++            )
++
++        return None
++
++
++def apply_slippage(price: float, slippage_bps: float, buy: bool) -> float:
++    adjustment = price * slippage_bps / 10_000
++    return price + adjustment if buy else price - adjustment
+diff --git a/src/cbot/engine/portfolio.py b/src/cbot/engine/portfolio.py
+index 946ba03..032c10f 100644
+--- a/src/cbot/engine/portfolio.py
++++ b/src/cbot/engine/portfolio.py
+@@ -1,2 +1,73 @@
+-"""Simulated portfolio accounting will be implemented in Slice 6."""
++"""Simulated spot portfolio accounting."""
+ 
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++from cbot.types import Fill, SignalAction
++
++
++@dataclass
++class Portfolio:
++    cash: float
++    base_asset: str
++    quote_asset: str
++    position_qty: float = 0.0
++    realized_pnl: float = 0.0
++    peak_equity: float = field(init=False)
++    max_drawdown_pct: float = 0.0
++    fills_count: int = 0
++
++    def __post_init__(self) -> None:
++        self.peak_equity = self.cash
++
++    @property
++    def has_position(self) -> bool:
++        return self.position_qty > 0
++
++    def view(self) -> dict[str, object]:
++        return {
++            "has_position": self.has_position,
++            "cash": self.cash,
++            "position_qty": self.position_qty,
++            "base_asset": self.base_asset,
++            "quote_asset": self.quote_asset,
++        }
++
++    def equity(self, mark_price: float) -> float:
++        return self.cash + self.position_qty * mark_price
++
++    def apply_fill(self, fill: Fill) -> None:
++        if fill.side == SignalAction.BUY:
++            total_cost = fill.notional + fill.fee
++            if total_cost > self.cash + 1e-9:
++                raise ValueError("Fill cost exceeds available cash.")
++            self.cash -= total_cost
++            self.position_qty += fill.quantity
++        elif fill.side in {SignalAction.SELL, SignalAction.EXIT}:
++            if fill.quantity > self.position_qty + 1e-9:
++                raise ValueError("Fill quantity exceeds current position.")
++            self.cash += fill.notional - fill.fee
++            self.position_qty -= fill.quantity
++        else:
++            raise ValueError(f"Unsupported fill side: {fill.side}")
++        self.fills_count += 1
++
++    def snapshot(self, mark_price: float) -> dict[str, object]:
++        equity = self.equity(mark_price)
++        if equity > self.peak_equity:
++            self.peak_equity = equity
++        drawdown_pct = 0.0
++        if self.peak_equity:
++            drawdown_pct = max(0.0, (self.peak_equity - equity) / self.peak_equity * 100)
++        self.max_drawdown_pct = max(self.max_drawdown_pct, drawdown_pct)
++        return {
++            "cash": round(self.cash, 10),
++            "equity": round(equity, 10),
++            "drawdown_pct": round(drawdown_pct, 10),
++            "positions": {
++                self.base_asset: round(self.position_qty, 10),
 +            },
-+            "warnings": ["Slice 5 emits signals only; execution simulation is not implemented yet."],
-+        },
-+    )
-+    write_json(
-+        run_dir.report_path,
-+        {
-+            "run_id": run_dir.run_id,
-+            "status": "COMPLETED",
-+            "verdict": "INSUFFICIENT_DATA",
-+            "metrics": {"signals_seen": signals_seen},
-+        },
-+    )
-+    run_dir.summary_path.write_text(
-+        f"# Backtest Summary\n\nRun: `{run_dir.run_id}`\n\nSignals seen: {signals_seen}\n",
-+        encoding="utf-8",
-+    )
-+    return BacktestResult(run_id=run_dir.run_id, run_dir=run_dir.path, signals_seen=signals_seen)
-diff --git a/src/cbot/engine/events.py b/src/cbot/engine/events.py
-index d779e8c..161585d 100644
---- a/src/cbot/engine/events.py
-+++ b/src/cbot/engine/events.py
-@@ -107,8 +107,13 @@ class RunDirectory:
- def create_run_directory(root: Path, label: str, now: datetime | None = None) -> RunDirectory:
-     run_id = make_run_id(label, now)
-     path = root / run_id
--    path.mkdir(parents=True, exist_ok=False)
--    return RunDirectory(run_id=run_id, path=path)
-+    candidate = path
-+    suffix = 2
-+    while candidate.exists():
-+        candidate = root / f"{run_id}_{suffix}"
-+        suffix += 1
-+    candidate.mkdir(parents=True, exist_ok=False)
-+    return RunDirectory(run_id=candidate.name, path=candidate)
- 
- 
- def write_json(path: Path, value: dict[str, Any]) -> None:
-diff --git a/tests/test_cli.py b/tests/test_cli.py
-index 01c4c48..7bd67f1 100644
---- a/tests/test_cli.py
-+++ b/tests/test_cli.py
-@@ -51,3 +51,39 @@ def test_fetch_data_command_uses_market_data_layer(monkeypatch, capsys):
-     captured = capsys.readouterr()
-     assert result == 0
-     assert "Wrote 1 candles to fake.parquet" in captured.out
++            "realized_pnl": round(self.realized_pnl, 10),
++            "unrealized_pnl": round(self.position_qty * mark_price, 10),
++        }
+diff --git a/src/cbot/types.py b/src/cbot/types.py
+index b0a2fd4..e4ba0bf 100644
+--- a/src/cbot/types.py
++++ b/src/cbot/types.py
+@@ -81,3 +81,27 @@ class Signal:
+     @classmethod
+     def hold(cls, reason: str = "no signal") -> "Signal":
+         return cls(action=SignalAction.HOLD, reason=reason)
 +
 +
-+def test_backtest_command_uses_engine(monkeypatch, tmp_path, capsys):
-+    config_path = tmp_path / "config.yaml"
-+    config_path.write_text("{}", encoding="utf-8")
++@dataclass(frozen=True)
++class OrderIntent:
++    symbol: str
++    side: SignalAction
++    target_fraction: float
++    reason: str
 +
-+    class FakeStore:
-+        def __init__(self, root):
-+            self.root = root
 +
-+        def read_candles(self, symbol, timeframe):
-+            return []
++@dataclass(frozen=True)
++class Fill:
++    symbol: str
++    side: SignalAction
++    quantity: float
++    price: float
++    fee: float
++    fee_asset: str
++    slippage_bps: float
++    order_id: str
 +
-+    class FakeConfig:
-+        symbol = "BTCUSDT"
-+        timeframe = "1h"
-+        strategy_name = "cash_no_trade"
-+
-+        @classmethod
-+        def from_yaml(cls, path):
-+            assert path == config_path
-+            return cls()
-+
-+    class FakeResult:
-+        run_id = "run_20260502_123005_smoke"
-+        run_dir = "logs/runs/run_20260502_123005_smoke"
-+
-+    monkeypatch.setattr("cbot.cli.RunConfig", FakeConfig)
-+    monkeypatch.setattr("cbot.cli.MarketDataStore", FakeStore)
-+    monkeypatch.setattr("cbot.cli.run_backtest", lambda config, candles, strategy: FakeResult())
-+
-+    result = main(["backtest", "--config", str(config_path)])
-+
-+    captured = capsys.readouterr()
-+    assert result == 0
-+    assert "Wrote run run_20260502_123005_smoke" in captured.out
++    @property
++    def notional(self) -> float:
++        return self.quantity * self.price
 
 [stderr]
-warning: in the working copy of 'logs/schema/v1/event-envelope.schema.json', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'logs/schema/v1/portfolio.snapshot.schema.json', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'logs/schema/v1/run.completed.schema.json', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'logs/schema/v1/run.started.schema.json', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'logs/schema/v1/simulation.fill.schema.json', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'logs/schema/v1/strategy.signal.schema.json', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/cli.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/config.py', LF will be replaced by CRLF the next time Git touches it
 warning: in the working copy of 'src/cbot/engine/backtest.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/cbot/engine/events.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'tests/test_cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/engine/execution.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/engine/portfolio.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/cbot/types.py', LF will be replaced by CRLF the next time Git touches it
 ```
 
 ## File Tree
@@ -540,10 +431,12 @@ warning: in the working copy of 'tests/test_cli.py', LF will be replaced by CRLF
 - tests\test_cli.py
 - tests\test_config.py
 - tests\test_events.py
+- tests\test_execution_simulator.py
 - tests\test_market_data_binance.py
 - tests\test_market_data_store.py
 - tests\test_market_data_validation.py
 - tests\test_package.py
+- tests\test_portfolio.py
 - tests\test_strategies.py
 - tests\test_strategy_protocol.py
 - tools\make_context.py
@@ -3549,7 +3442,7 @@ The generated file goes to `reviews/latest/context-pack.md`.
 ### reviews\latest\context-pack.md
 
 ```text
-[Skipped: file is 159633 bytes, above 24000 byte limit]
+[Skipped: file is 180705 bytes, above 24000 byte limit]
 ```
 
 ### src\cbot\__init__.py
@@ -3787,8 +3680,10 @@ from typing import Any
 
 from cbot.config import RunConfig
 from cbot.engine.events import JsonlEventWriter, RunDirectory, create_run_directory, write_json
+from cbot.engine.execution import ExecutionSettings, ExecutionSimulator
+from cbot.engine.portfolio import Portfolio
 from cbot.strategies.protocol import Strategy
-from cbot.types import Candle, SignalAction
+from cbot.types import Candle, Fill, SignalAction
 
 
 @dataclass(frozen=True)
@@ -3796,6 +3691,7 @@ class BacktestResult:
     run_id: str
     run_dir: Path
     signals_seen: int
+    fills_seen: int
 
 
 def run_backtest(
@@ -3825,13 +3721,16 @@ def run_backtest(
 
     writer.write("run.started", run_dir.run_id, config.to_event_payload())
     signals_seen = 0
+    fills_seen = 0
     history: list[Candle] = []
-    portfolio_view: dict[str, Any] = {
-        "has_position": False,
-        "cash": config.initial_cash,
-        "base_asset": config.base_asset,
-        "quote_asset": config.quote_asset,
-    }
+    portfolio = Portfolio(
+        cash=config.initial_cash,
+        base_asset=config.base_asset,
+        quote_asset=config.quote_asset,
+    )
+    execution = ExecutionSimulator(
+        ExecutionSettings(fee_bps=config.fee_bps, slippage_bps=config.slippage_bps)
+    )
 
     for candle in candles:
         if candle.symbol != config.symbol or candle.timeframe != config.timeframe:
@@ -3840,7 +3739,7 @@ def run_backtest(
             continue
 
         history.append(candle)
-        signal = strategy.on_candle(tuple(history), portfolio_view, config.strategy_parameters)
+        signal = strategy.on_candle(tuple(history), portfolio.view(), config.strategy_parameters)
         if signal.action != SignalAction.HOLD:
             signals_seen += 1
             writer.write(
@@ -3856,10 +3755,18 @@ def run_backtest(
                     "features": dict(signal.features),
                 },
             )
-            if signal.action == SignalAction.BUY:
-                portfolio_view["has_position"] = True
-            elif signal.action in {SignalAction.SELL, SignalAction.EXIT}:
-                portfolio_view["has_position"] = False
+            intent = execution.intent_from_signal(candle.symbol, signal)
+            if intent:
+                fill = execution.simulate_fill(intent, candle, portfolio)
+                if fill:
+                    portfolio.apply_fill(fill)
+                    fills_seen += 1
+                    writer.write("simulation.fill", run_dir.run_id, fill_payload(fill))
+                    writer.write(
+                        "portfolio.snapshot",
+                        run_dir.run_id,
+                        portfolio.snapshot(candle.close),
+                    )
 
     writer.write(
         "run.completed",
@@ -3869,8 +3776,11 @@ def run_backtest(
             "verdict": "INSUFFICIENT_DATA",
             "metrics": {
                 "signals_seen": signals_seen,
+                "fills_seen": fills_seen,
+                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
+                "max_drawdown_pct": portfolio.max_drawdown_pct,
             },
-            "warnings": ["Slice 5 emits signals only; execution simulation is not implemented yet."],
+            "warnings": ["Slice 6 simulation is basic; metrics/verdict rules are implemented in later slices."],
         },
     )
     write_json(
@@ -3879,14 +3789,42 @@ def run_backtest(
             "run_id": run_dir.run_id,
             "status": "COMPLETED",
             "verdict": "INSUFFICIENT_DATA",
-            "metrics": {"signals_seen": signals_seen},
+            "metrics": {
+                "signals_seen": signals_seen,
+                "fills_seen": fills_seen,
+                "final_equity": portfolio.equity(history[-1].close) if history else config.initial_cash,
+                "max_drawdown_pct": portfolio.max_drawdown_pct,
+            },
         },
     )
     run_dir.summary_path.write_text(
-        f"# Backtest Summary\n\nRun: `{run_dir.run_id}`\n\nSignals seen: {signals_seen}\n",
+        (
+            "# Backtest Summary\n\n"
+            f"Run: `{run_dir.run_id}`\n\n"
+            f"Signals seen: {signals_seen}\n\n"
+            f"Fills seen: {fills_seen}\n"
+        ),
         encoding="utf-8",
     )
-    return BacktestResult(run_id=run_dir.run_id, run_dir=run_dir.path, signals_seen=signals_seen)
+    return BacktestResult(
+        run_id=run_dir.run_id,
+        run_dir=run_dir.path,
+        signals_seen=signals_seen,
+        fills_seen=fills_seen,
+    )
+
+
+def fill_payload(fill: Fill) -> dict[str, Any]:
+    return {
+        "symbol": fill.symbol,
+        "side": "SELL" if fill.side == SignalAction.EXIT else fill.side.value,
+        "quantity": fill.quantity,
+        "price": fill.price,
+        "fee": fill.fee,
+        "fee_asset": fill.fee_asset,
+        "slippage_bps": fill.slippage_bps,
+        "order_id": fill.order_id,
+    }
 
 ```
 
@@ -4020,16 +3958,169 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
 ### src\cbot\engine\execution.py
 
 ```text
-"""Execution simulation will be implemented in Slice 6."""
+"""Simple spot execution simulation."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from cbot.engine.portfolio import Portfolio
+from cbot.types import Candle, Fill, OrderIntent, Signal, SignalAction
+
+
+@dataclass(frozen=True)
+class ExecutionSettings:
+    fee_bps: float
+    slippage_bps: float
+    min_notional: float = 10.0
+
+
+class ExecutionSimulator:
+    def __init__(self, settings: ExecutionSettings) -> None:
+        self.settings = settings
+        self._order_sequence = 0
+
+    def intent_from_signal(self, symbol: str, signal: Signal) -> OrderIntent | None:
+        if signal.action == SignalAction.HOLD:
+            return None
+        target_fraction = signal.target_fraction
+        if target_fraction is None:
+            target_fraction = 1.0 if signal.action == SignalAction.BUY else 0.0
+        return OrderIntent(
+            symbol=symbol,
+            side=signal.action,
+            target_fraction=target_fraction,
+            reason=signal.reason,
+        )
+
+    def simulate_fill(self, intent: OrderIntent, candle: Candle, portfolio: Portfolio) -> Fill | None:
+        self._order_sequence += 1
+        order_id = f"sim-{self._order_sequence:06d}"
+
+        if intent.side == SignalAction.BUY:
+            price = apply_slippage(candle.close, self.settings.slippage_bps, buy=True)
+            target_notional = portfolio.equity(candle.close) * intent.target_fraction
+            spendable = min(portfolio.cash, target_notional)
+            if spendable < self.settings.min_notional:
+                return None
+            fee_rate = self.settings.fee_bps / 10_000
+            quantity = spendable / (price * (1 + fee_rate))
+            fee = quantity * price * fee_rate
+            return Fill(
+                symbol=intent.symbol,
+                side=SignalAction.BUY,
+                quantity=quantity,
+                price=price,
+                fee=fee,
+                fee_asset=portfolio.quote_asset,
+                slippage_bps=self.settings.slippage_bps,
+                order_id=order_id,
+            )
+
+        if intent.side in {SignalAction.SELL, SignalAction.EXIT}:
+            quantity = portfolio.position_qty * (1 - intent.target_fraction)
+            if quantity <= 0:
+                return None
+            price = apply_slippage(candle.close, self.settings.slippage_bps, buy=False)
+            if quantity * price < self.settings.min_notional:
+                return None
+            fee = quantity * price * (self.settings.fee_bps / 10_000)
+            return Fill(
+                symbol=intent.symbol,
+                side=intent.side,
+                quantity=quantity,
+                price=price,
+                fee=fee,
+                fee_asset=portfolio.quote_asset,
+                slippage_bps=self.settings.slippage_bps,
+                order_id=order_id,
+            )
+
+        return None
+
+
+def apply_slippage(price: float, slippage_bps: float, buy: bool) -> float:
+    adjustment = price * slippage_bps / 10_000
+    return price + adjustment if buy else price - adjustment
 
 ```
 
 ### src\cbot\engine\portfolio.py
 
 ```text
-"""Simulated portfolio accounting will be implemented in Slice 6."""
+"""Simulated spot portfolio accounting."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from cbot.types import Fill, SignalAction
+
+
+@dataclass
+class Portfolio:
+    cash: float
+    base_asset: str
+    quote_asset: str
+    position_qty: float = 0.0
+    realized_pnl: float = 0.0
+    peak_equity: float = field(init=False)
+    max_drawdown_pct: float = 0.0
+    fills_count: int = 0
+
+    def __post_init__(self) -> None:
+        self.peak_equity = self.cash
+
+    @property
+    def has_position(self) -> bool:
+        return self.position_qty > 0
+
+    def view(self) -> dict[str, object]:
+        return {
+            "has_position": self.has_position,
+            "cash": self.cash,
+            "position_qty": self.position_qty,
+            "base_asset": self.base_asset,
+            "quote_asset": self.quote_asset,
+        }
+
+    def equity(self, mark_price: float) -> float:
+        return self.cash + self.position_qty * mark_price
+
+    def apply_fill(self, fill: Fill) -> None:
+        if fill.side == SignalAction.BUY:
+            total_cost = fill.notional + fill.fee
+            if total_cost > self.cash + 1e-9:
+                raise ValueError("Fill cost exceeds available cash.")
+            self.cash -= total_cost
+            self.position_qty += fill.quantity
+        elif fill.side in {SignalAction.SELL, SignalAction.EXIT}:
+            if fill.quantity > self.position_qty + 1e-9:
+                raise ValueError("Fill quantity exceeds current position.")
+            self.cash += fill.notional - fill.fee
+            self.position_qty -= fill.quantity
+        else:
+            raise ValueError(f"Unsupported fill side: {fill.side}")
+        self.fills_count += 1
+
+    def snapshot(self, mark_price: float) -> dict[str, object]:
+        equity = self.equity(mark_price)
+        if equity > self.peak_equity:
+            self.peak_equity = equity
+        drawdown_pct = 0.0
+        if self.peak_equity:
+            drawdown_pct = max(0.0, (self.peak_equity - equity) / self.peak_equity * 100)
+        self.max_drawdown_pct = max(self.max_drawdown_pct, drawdown_pct)
+        return {
+            "cash": round(self.cash, 10),
+            "equity": round(equity, 10),
+            "drawdown_pct": round(drawdown_pct, 10),
+            "positions": {
+                self.base_asset: round(self.position_qty, 10),
+            },
+            "realized_pnl": round(self.realized_pnl, 10),
+            "unrealized_pnl": round(self.position_qty * mark_price, 10),
+        }
 
 ```
 
@@ -4647,6 +4738,30 @@ class Signal:
     def hold(cls, reason: str = "no signal") -> "Signal":
         return cls(action=SignalAction.HOLD, reason=reason)
 
+
+@dataclass(frozen=True)
+class OrderIntent:
+    symbol: str
+    side: SignalAction
+    target_fraction: float
+    reason: str
+
+
+@dataclass(frozen=True)
+class Fill:
+    symbol: str
+    side: SignalAction
+    quantity: float
+    price: float
+    fee: float
+    fee_asset: str
+    slippage_bps: float
+    order_id: str
+
+    @property
+    def notional(self) -> float:
+        return self.quantity * self.price
+
 ```
 
 ### tests\test_backtest_determinism.py
@@ -5067,6 +5182,78 @@ def test_core_event_schemas_accept_minimal_valid_records():
 
 ```
 
+### tests\test_execution_simulator.py
+
+```text
+from datetime import UTC, datetime
+
+from cbot.engine.execution import ExecutionSettings, ExecutionSimulator, apply_slippage
+from cbot.engine.portfolio import Portfolio
+from cbot.types import Candle, Signal, SignalAction
+
+
+def candle(close=100):
+    return Candle(
+        symbol="BTCUSDT",
+        timeframe="1h",
+        timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+        open=close,
+        high=close + 1,
+        low=close - 1,
+        close=close,
+        volume=10,
+    )
+
+
+def test_apply_slippage_moves_against_trade():
+    assert apply_slippage(100, 20, buy=True) == 100.2
+    assert apply_slippage(100, 20, buy=False) == 99.8
+
+
+def test_buy_signal_simulates_fill_with_fee_and_slippage():
+    simulator = ExecutionSimulator(ExecutionSettings(fee_bps=10, slippage_bps=20))
+    portfolio = Portfolio(cash=1000, base_asset="BTC", quote_asset="USDT")
+    intent = simulator.intent_from_signal(
+        "BTCUSDT",
+        Signal(SignalAction.BUY, "buy", target_fraction=1.0),
+    )
+
+    fill = simulator.simulate_fill(intent, candle(100), portfolio)
+
+    assert fill is not None
+    assert fill.price == 100.2
+    assert fill.fee > 0
+    assert fill.notional + fill.fee <= 1000 + 1e-9
+
+
+def test_sell_signal_simulates_exit_fill():
+    simulator = ExecutionSimulator(ExecutionSettings(fee_bps=10, slippage_bps=20))
+    portfolio = Portfolio(cash=0, base_asset="BTC", quote_asset="USDT", position_qty=1)
+    intent = simulator.intent_from_signal(
+        "BTCUSDT",
+        Signal(SignalAction.EXIT, "exit", target_fraction=0.0),
+    )
+
+    fill = simulator.simulate_fill(intent, candle(100), portfolio)
+
+    assert fill is not None
+    assert fill.side == SignalAction.EXIT
+    assert fill.price == 99.8
+    assert fill.quantity == 1
+
+
+def test_small_order_returns_no_fill():
+    simulator = ExecutionSimulator(ExecutionSettings(fee_bps=10, slippage_bps=20, min_notional=10))
+    portfolio = Portfolio(cash=5, base_asset="BTC", quote_asset="USDT")
+    intent = simulator.intent_from_signal(
+        "BTCUSDT",
+        Signal(SignalAction.BUY, "buy", target_fraction=1.0),
+    )
+
+    assert simulator.simulate_fill(intent, candle(100), portfolio) is None
+
+```
+
 ### tests\test_market_data_binance.py
 
 ```text
@@ -5233,6 +5420,60 @@ import cbot
 
 def test_package_version_exists():
     assert cbot.__version__
+
+
+```
+
+### tests\test_portfolio.py
+
+```text
+from cbot.engine.portfolio import Portfolio
+from cbot.types import Fill, SignalAction
+
+
+def test_portfolio_applies_buy_and_sell_fills():
+    portfolio = Portfolio(cash=1000, base_asset="BTC", quote_asset="USDT")
+
+    portfolio.apply_fill(
+        Fill(
+            symbol="BTCUSDT",
+            side=SignalAction.BUY,
+            quantity=1,
+            price=100,
+            fee=1,
+            fee_asset="USDT",
+            slippage_bps=0,
+            order_id="sim-1",
+        )
+    )
+    assert portfolio.cash == 899
+    assert portfolio.position_qty == 1
+
+    portfolio.apply_fill(
+        Fill(
+            symbol="BTCUSDT",
+            side=SignalAction.EXIT,
+            quantity=0.5,
+            price=110,
+            fee=1,
+            fee_asset="USDT",
+            slippage_bps=0,
+            order_id="sim-2",
+        )
+    )
+    assert portfolio.cash == 953
+    assert portfolio.position_qty == 0.5
+
+
+def test_portfolio_snapshot_tracks_drawdown():
+    portfolio = Portfolio(cash=0, base_asset="BTC", quote_asset="USDT", position_qty=1)
+    first = portfolio.snapshot(100)
+    second = portfolio.snapshot(80)
+
+    assert first["equity"] == 100
+    assert second["equity"] == 80
+    assert second["drawdown_pct"] == 20
+    assert portfolio.max_drawdown_pct == 20
 
 
 ```

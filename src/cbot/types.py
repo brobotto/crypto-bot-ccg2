@@ -81,3 +81,27 @@ class Signal:
     @classmethod
     def hold(cls, reason: str = "no signal") -> "Signal":
         return cls(action=SignalAction.HOLD, reason=reason)
+
+
+@dataclass(frozen=True)
+class OrderIntent:
+    symbol: str
+    side: SignalAction
+    target_fraction: float
+    reason: str
+
+
+@dataclass(frozen=True)
+class Fill:
+    symbol: str
+    side: SignalAction
+    quantity: float
+    price: float
+    fee: float
+    fee_asset: str
+    slippage_bps: float
+    order_id: str
+
+    @property
+    def notional(self) -> float:
+        return self.quantity * self.price
